@@ -1,0 +1,350 @@
+[
+  {
+    "id": "about",
+    "sections": [
+      {
+        "id": "hero",
+        "content": {
+          "subheading": "Leading the way in veterinary excellence since 1978.",
+          "heading": "About PAHA"
+        },
+        "style": {
+          "textColor": "#ffffff"
+        },
+        "isVisible": true,
+        "type": "hero",
+        "title": "Hero Section"
+      },
+      {
+        "content": {
+          "vision": "A globally recognized organization...",
+          "mission": "To provide high standards of veterinary practice..."
+        },
+        "style": {},
+        "isVisible": true,
+        "type": "text",
+        "title": "Mission & Vision",
+        "id": "mission"
+      }
+    ],
+    "title": "About Us"
+  },
+  {
+    "id": "accredited_clinics",
+    "title": "Accredited Clinics",
+    "sections": [
+      {
+        "type": "hero",
+        "title": "Header Section",
+        "content": {
+          "subheading": "Locate PAHA-accredited animal hospitals and clinics near you.",
+          "heading": "Accredited Clinics"
+        },
+        "style": {},
+        "isVisible": true,
+        "id": "hero"
+      }
+    ]
+  },
+  {
+    "id": "association",
+    "sections": [
+      {
+        "id": "hero",
+        "type": "hero",
+        "title": "Hero / Intro Section",
+        "content": {
+          "tag": "The Organization",
+          "description": "Founded in 1978, the Philippine Animal Hospital Association (PAHA) stands as the pillar of veterinary excellence, uniting professionals to elevate the standard of animal care nationwide.",
+          "heading": "Our Association",
+          "headingHighlight": "Association"
+        },
+        "isVisible": true,
+        "style": {}
+      },
+      {
+        "type": "hero",
+        "title": "President Highlight",
+        "content": {
+          "roleSubtitle": "DVM, PAHA Board President",
+          "image": "https://firebasestorage.googleapis.com/v0/b/paha-db.firebasestorage.app/o/sections%2Fassociation%2Fpresident%2F1774796951915-doc_L.png%2F1774796951915_doc%20L.png?alt=media&token=48ad9cf4-35ac-4081-a827-899342e96206",
+          "name": "Dr. Luchi Orlanda",
+          "role": "President",
+          "quote": "Our collective mission is to foster a culture of excellence and innovation in veterinary medicine, ensuring the highest standards of care for every patient we serve."
+        },
+        "isVisible": true,
+        "style": {},
+        "id": "president"
+      },
+      {
+        "id": "board_intro",
+        "type": "text",
+        "title": "Board of Trustees Header",
+        "content": {
+          "subheading": "The stewards of our mission for the term 2026–2027.",
+          "term": "Term 2026-2027",
+          "heading": "PAHA Board of Trustees"
+        },
+        "style": {},
+        "isVisible": true
+      },
+      {
+        "isVisible": true,
+        "style": {},
+        "content": {
+          "v4_img": "https://firebasestorage.googleapis.com/v0/b/paha-db.firebasestorage.app/o/sections%2Fassociation%2Fofficers_grid%2F1774797195446-Screenshot_2026-03-29_230248.png%2F1774797195446_Screenshot%202026-03-29%20230248.png?alt=media&token=ffbeb744-bf6c-4ea9-a15a-c9ffe394731a",
+          "v5_name": "Dr. Pretextato Chua III",
+          "v4_role": "Auditor",
+          "v2_img": "https://firebasestorage.googleapis.com/v0/b/paha-db.firebasestorage.app/o/sections%2Fassociation%2Fofficers_grid%2F1774797302427-Screenshot_2026-03-29_225851.png%2F1774797302427_Screenshot%202026-03-29%20225851.png?alt=media&token=b7b91de9-5422-48a3-9ca8-369732ed1857",
+          "v1_role": "Vice President",
+          "v1_img": "https://firebasestorage.googleapis.com/v0/b/paha-db.firebasestorage.app/o/sections%2Fassociation%2Fofficers_grid%2F1774797095534-Screenshot_2026-03-29_230230.png%2F1774797095534_Screenshot%202026-03-29%20230230.png?alt=media&token=2bcabf46-306f-4b26-acdb-f3156d09b0a9",
+          "v5_role": "Board of Director",
+          "v5_img": "https://firebasestorage.googleapis.com/v0/b/paha-db.firebasestorage.app/o/sections%2Fassociation%2Fofficers_grid%2F1774797328239-Screenshot_2026-03-29_230515.png%2F1774797328239_Screenshot%202026-03-29%20230515.png?alt=media&token=3c8d66a1-e492-4637-bdb7-28c1d46fe68d",
+          "v4_name": "Dr. Marcelo Evangelista",
+          "v2_name": "Dr. Maricris Alcantara",
+          "v6_role": "Immediate Past President",
+          "v3_role": "Treasurer",
+          "v3_img": "https://firebasestorage.googleapis.com/v0/b/paha-db.firebasestorage.app/o/sections%2Fassociation%2Fofficers_grid%2F1774797271602-Screenshot_2026-03-29_225211.png%2F1774797271603_Screenshot%202026-03-29%20225211.png?alt=media&token=363b7c61-00ba-4a45-acd4-21e77d094b52",
+          "v6_img": "https://firebasestorage.googleapis.com/v0/b/paha-db.firebasestorage.app/o/sections%2Fassociation%2Fofficers_grid%2F1774797367071-Screenshot_2026-03-29_225527.png%2F1774797367072_Screenshot%202026-03-29%20225527.png?alt=media&token=9de95ce4-6d37-4437-ab66-67487b9828b6",
+          "v2_role": "Secretary",
+          "v3_name": "Dr. Sheryl Belen",
+          "v1_name": "Dr. Benedick Macaraeg",
+          "v6_name": "Dr. Mitzi Padrinao"
+        },
+        "title": "Officers & Directors Grid",
+        "type": "grid",
+        "id": "officers_grid"
+      },
+      {
+        "id": "secretariat_grid",
+        "style": {},
+        "isVisible": true,
+        "content": {
+          "heading": "Administrative Secretariat",
+          "s2_role": "Administrative Secretary",
+          "s1_name": "Diwatal Andres",
+          "s1_img": "https://firebasestorage.googleapis.com/v0/b/paha-db.firebasestorage.app/o/sections%2Fassociation%2Fsecretariat_grid%2F1774797599702-Screenshot_2026-03-29_231931.png%2F1774797599703_Screenshot%202026-03-29%20231931.png?alt=media&token=59bb6592-dc41-4f09-9b8a-514a4c2e3256",
+          "s1_role": "Administrative Secretary",
+          "s2_img": "https://firebasestorage.googleapis.com/v0/b/paha-db.firebasestorage.app/o/sections%2Fassociation%2Fsecretariat_grid%2F1774797613934-Screenshot_2026-03-29_231947.png%2F1774797613934_Screenshot%202026-03-29%20231947.png?alt=media&token=dacfc8ab-7caf-420a-802e-e0124f12291e",
+          "s2_name": "Mart Joed S. Estrella"
+        },
+        "title": "Administrative Secretariat",
+        "type": "grid"
+      },
+      {
+        "type": "text",
+        "title": "Mission Statement",
+        "content": {
+          "heading": "Our Mission",
+          "description": "To lead the development of the veterinary hospital industry through accreditation, continuing education, and legislative advocacy, ensuring the welfare of both the profession and the animals we care for."
+        },
+        "isVisible": true,
+        "style": {},
+        "id": "mission"
+      },
+      {
+        "id": "heritage",
+        "content": {
+          "heading": "Our Heritage",
+          "stat1_val": "1978",
+          "stat2_label": "Years of Service",
+          "stat3_val": "300+",
+          "description": "From a small group of six visionaries in 1978 to a nationwide network of hundreds of hospitals today, PAHA's journey is a testament to the resilience and dedication of the Filipino veterinarian.",
+          "stat4_val": "Top 1",
+          "stat3_label": "Member Hospitals",
+          "stat4_label": "Standard Setter",
+          "stat1_label": "Founded",
+          "stat2_val": "45+"
+        },
+        "isVisible": true,
+        "style": {},
+        "type": "text",
+        "title": "Heritage & Stats"
+      }
+    ],
+    "title": "Our Association"
+  },
+  {
+    "id": "benefits",
+    "sections": [
+      {
+        "id": "hero",
+        "content": {
+          "subheading": "Discover the exclusive perks of being a PAHA member.",
+          "heading": "Member Benefits"
+        },
+        "isVisible": true,
+        "style": {},
+        "type": "hero",
+        "title": "Header Section"
+      }
+    ],
+    "title": "Membership Benefits"
+  },
+  {
+    "id": "calendar",
+    "sections": [
+      {
+        "style": {},
+        "isVisible": true,
+        "content": {
+          "subheading": "Stay updated with our schedule of seminars and activities.",
+          "heading": "Event Calendar"
+        },
+        "title": "Header Section",
+        "type": "hero",
+        "id": "hero"
+      }
+    ],
+    "title": "Calendar"
+  },
+  {
+    "id": "contact",
+    "title": "Contact Us",
+    "sections": [
+      {
+        "content": {
+          "subheading": "We would love to hear from you.",
+          "heading": "Get in Touch"
+        },
+        "isVisible": true,
+        "style": {
+          "textColor": "#ffffff"
+        },
+        "type": "hero",
+        "title": "Hero Section",
+        "id": "hero"
+      }
+    ]
+  },
+  {
+    "id": "directory",
+    "title": "Member Directory",
+    "sections": [
+      {
+        "title": "Header Section",
+        "type": "hero",
+        "isVisible": true,
+        "style": {},
+        "content": {
+          "subheading": "Find and connect with fellow veterinary professionals.",
+          "heading": "Member Directory"
+        },
+        "id": "hero"
+      }
+    ]
+  },
+  {
+    "id": "events",
+    "title": "Events & Seminars",
+    "sections": [
+      {
+        "content": {
+          "subheading": "Join our latest seminars and conferences.",
+          "heading": "Upcoming Events & CPD"
+        },
+        "style": {
+          "textColor": "#ffffff"
+        },
+        "isVisible": true,
+        "type": "hero",
+        "title": "Events Hero",
+        "id": "hero"
+      }
+    ]
+  },
+  {
+    "id": "home",
+    "sections": [
+      {
+        "content": {
+          "subheading": "To uplift the veterinary profession through continuing education and increase social awareness through community service.",
+          "heading": "Uplifting the Veterinary Profession",
+          "buttonText": "BECOME A MEMBER"
+        },
+        "style": {
+          "backgroundColor": "#000000",
+          "textColor": "#ffffff"
+        },
+        "isVisible": true,
+        "type": "hero",
+        "title": "Hero Section",
+        "id": "hero"
+      },
+      {
+        "content": {
+          "title": "Why Join PAHA?"
+        },
+        "style": {},
+        "isVisible": true,
+        "type": "features",
+        "title": "Key Features",
+        "id": "features"
+      },
+      {
+        "id": "partners",
+        "content": {
+          "title": "Our Industry Partners"
+        },
+        "style": {},
+        "isVisible": true,
+        "type": "list",
+        "title": "Industry Partners"
+      }
+    ],
+    "title": "Home Page"
+  },
+  {
+    "id": "membership",
+    "title": "Membership",
+    "sections": [
+      {
+        "title": "Hero Section",
+        "type": "hero",
+        "isVisible": true,
+        "style": {
+          "textColor": "#ffffff"
+        },
+        "content": {
+          "subheading": "Be part of the largest network of veterinary professionals.",
+          "heading": "Join Our Community"
+        },
+        "id": "hero"
+      }
+    ]
+  },
+  {
+    "id": "membership_application",
+    "sections": [
+      {
+        "id": "hero",
+        "isVisible": true,
+        "style": {},
+        "content": {
+          "subheading": "Join the premier veterinary association in the country.",
+          "heading": "Membership Application"
+        },
+        "title": "Header Section",
+        "type": "hero"
+      }
+    ],
+    "title": "Membership Application"
+  },
+  {
+    "id": "registrations",
+    "sections": [
+      {
+        "id": "hero",
+        "content": {
+          "subheading": "Manage your upcoming event registrations and view your history.",
+          "heading": "My Registrations"
+        },
+        "style": {},
+        "isVisible": true,
+        "type": "hero",
+        "title": "Header Section"
+      }
+    ],
+    "title": "My Registrations"
+  }
+]

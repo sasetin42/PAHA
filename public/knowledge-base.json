@@ -1,0 +1,332 @@
+{
+  "metadata": {
+    "version": "1.0.0",
+    "lastUpdated": "2026-01-14",
+    "organization": "Philippine Animal Hospital Association (PAHA)",
+    "website": "https://paha.ph",
+    "purpose": "Comprehensive knowledge base for PAHA chatbot systems"
+  },
+  
+  "general": {
+    "organization": {
+      "name": "Philippine Animal Hospital Association",
+      "acronym": "PAHA",
+      "description": "PAHA is the leading professional organization for veterinarians and animal hospitals in the Philippines, dedicated to advancing veterinary medicine and promoting animal welfare.",
+      "mission": "To promote excellence in veterinary medicine, advocate for animal welfare, and support the professional development of veterinarians in the Philippines.",
+      "vision": "A community of highly competent and compassionate veterinarians providing quality animal healthcare across the Philippines.",
+      "officeAddress": "46 Pres. Quezon St., Marikina City, Philippines",
+      "email": {
+        "general": "secretariat@phaa.org.ph",
+        "support": "paha_members@yahoo.com"
+      },
+      "phone": "+63 2 8955 1234",
+      "officeHours": {
+        "weekdays": "Monday - Friday: 8:00 AM - 5:00 PM (Philippine Standard Time)",
+        "weekends": "Closed",
+        "holidays": "Closed on all Philippine holidays"
+      },
+      "socialMedia": {
+        "facebook": "PAHA Philippines",
+        "messenger": "Available via website widget",
+        "instagram": "@pahaphilippines",
+        "linkedin": "PAHA Philippines",
+        "youtube": "PAHA Official"
+      }
+    },
+    
+    "contactMethods": [
+      {
+        "method": "Contact Form",
+        "url": "/contact",
+        "responseTime": "Within 24 hours",
+        "fields": ["First Name", "Last Name", "Email", "Phone", "Service Needed", "Subject", "Message", "File Attachment (max 10MB)"],
+        "services": ["Membership Application", "Accreditation Requirements", "Technical & Portal Support", "Events & Conventions", "Payments & Billing", "Other"]
+      },
+      {
+        "method": "Email",
+        "address": "secretariat@phaa.org.ph",
+        "responseTime": "Within 24 hours",
+        "bestFor": "General inquiries, document submission, formal requests"
+      },
+      {
+        "method": "Phone",
+        "number": "+63 2 8955 1234",
+        "availability": "Monday-Friday, 8AM-5PM",
+        "bestFor": "Urgent matters, immediate assistance"
+      },
+      {
+        "method": "Messenger",
+        "availability": "24/7",
+        "responseTime": "Variable",
+        "bestFor": "Quick questions, informal support"
+      },
+      {
+        "method": "Walk-in",
+        "address": "46 Pres. Quezon St., Marikina City",
+        "availability": "Monday-Friday, 8AM-5PM",
+        "bestFor": "In-person visits, document submission"
+      }
+    ]
+  },
+
+  "membership": {
+    "overview": {
+      "description": "PAHA membership connects veterinarians and clinics across the Philippines, providing professional development, networking, and accreditation opportunities.",
+      "benefits": [
+        "Priority registration for CPE workshops, surgical wetlabs, and conventions at discounted rates",
+        "Free legal advisory for professional practice regulations and compliance",
+        "Listing in official PAHA directory discoverable by pet owners",
+        "Exclusive hotel deals at PAHA events",
+        "PRC-accredited CPD units at membership meetings",
+        "Official PAHA plaque, wall sticker, and digital badge",
+        "Emergency and routine referral network access",
+        "RA 10173 data privacy compliance support"
+      ]
+    },
+    
+    "types": [
+      {
+        "id": "regular",
+        "name": "Regular Membership",
+        "description": "For licensed veterinarians representing companion animal clinics",
+        "eligibility": "Licensed PRC veterinarian representing a registered animal clinic",
+        "fees": {
+          "firstYear": 5000,
+          "renewal": 2000,
+          "currency": "PHP"
+        },
+        "requirements": [
+          "Valid PRC veterinary license",
+          "DTI/SEC registered clinic",
+          "Completed application form",
+          "Government ID",
+          "Clinic photos",
+          "Business Permit",
+          "BAI Certificate",
+          "BIR COR 2303",
+          "PTR of Representative",
+          "Clinic walkthrough video (max 1 min)"
+        ]
+      },
+      {
+        "id": "associate",
+        "name": "Associate Membership",
+        "description": "For individual veterinarians not representing clinics",
+        "eligibility": "Licensed PRC veterinarian not representing a clinic",
+        "fees": {
+          "firstYear": 3500,
+          "renewal": 2000,
+          "currency": "PHP"
+        }
+      },
+      {
+        "id": "institutional",
+        "name": "Institutional Membership",
+        "description": "For veterinary hospitals, schools, and large institutions",
+        "eligibility": "Registered veterinary institution",
+        "fees": {
+          "firstYear": 10000,
+          "renewal": 2000,
+          "currency": "PHP"
+        }
+      },
+      {
+        "id": "affiliate",
+        "name": "Affiliate Membership",
+        "description": "For partners, suppliers, and allied professionals",
+        "eligibility": "Business or professional allied to veterinary medicine",
+        "fees": {
+          "firstYear": 4500,
+          "renewal": 2000,
+          "currency": "PHP"
+        }
+      }
+    ],
+    
+    "applicationProcess": {
+      "steps": [
+        {
+          "step": 1,
+          "name": "Check Qualifications",
+          "description": "Ensure you meet eligibility requirements for your chosen membership type"
+        },
+        {
+          "step": 2,
+          "name": "Submit Application",
+          "description": "Complete online application form and upload required documents"
+        },
+        {
+          "step": 3,
+          "name": "Email Verification",
+          "description": "Verify your email address via verification link"
+        },
+        {
+          "step": 4,
+          "name": "Pay Application Fee",
+          "description": "Settle the application fee after email verification",
+          "amount": 5000
+        },
+        {
+          "step": 5,
+          "name": "Admin Review",
+          "description": "PAHA board reviews your application",
+          "duration": "2-4 weeks"
+        },
+        {
+          "step": 6,
+          "name": "Approval & Activation",
+          "description": "Receive approval notification and gain full member access"
+        }
+      ],
+      "processingTime": "2-4 weeks",
+      "applicationFee": 5000
+    },
+    
+    "renewal": {
+      "validityPeriod": "1 year from approval date",
+      "renewalFee": 2000,
+      "notifications": "Automatic reminders sent via member notifications system"
+    },
+    
+    "businessStructures": {
+      "soleProprietorship": {
+        "name": "Sole Proprietorship",
+        "description": "Individual-owned clinic",
+        "documents": [
+          "Old DTI Permit (2021 or older)",
+          "Current DTI Permit",
+          "Business/Mayor's Permit",
+          "BAI Certificate",
+          "BIR COR 2303",
+          "PTR of Representative",
+          "PRC License",
+          "Clinic Walkthrough Video (max 1 min, 25MB)"
+        ]
+      },
+      "partnership": {
+        "name": "Partnership/Corporation",
+        "description": "Multi-owner business entity",
+        "documents": [
+          "SEC Articles of Incorporation",
+          "SEC By-Laws (representative must be 50%+ shareholder)",
+          "Business Permit",
+          "BAI Certificate",
+          "BIR COR 2303",
+          "PTR",
+          "PRC License",
+          "Board Resolution appointing representative"
+        ]
+      },
+      "teachingHospital": {
+        "name": "Veterinary Teaching Hospital",
+        "description": "Academic institution veterinary hospital",
+        "documents": [
+          "Endorsement Letter from Dean"
+        ]
+      }
+    }
+  },
+
+  "accreditation": {
+    "overview": {
+      "name": "PAHA Clinic Accreditation Program",
+      "description": "Formal recognition program validating veterinary clinics against the 2026 PAHA Accreditation Standard",
+      "validityPeriod": "3 years from date of accreditation",
+      "accreditationNumberFormat": "PAHA-ACC-{YEAR}-{5-digit-random}"
+    },
+    
+    "stages": [
+      {"stage": 1, "name": "Intent Submission", "status": "intent_submitted"},
+      {"stage": 2, "name": "Self-Assessment", "status": "self_assessment_completed"},
+      {"stage": 3, "name": "Site Visit Scheduled", "status": "for_site_visit"},
+      {"stage": 4, "name": "Inspection Completed", "status": "inspection_completed"},
+      {"stage": 5, "name": "For Compliance Submission", "status": "for_compliance_submission"},
+      {"stage": 6, "name": "Under Review", "status": "under_review"},
+      {"stage": 7, "name": "Needs Compliance", "status": "needs_compliance"},
+      {"stage": 8, "name": "Approved", "status": "approved"},
+      {"stage": 9, "name": "For Payment", "status": "for_payment"},
+      {"stage": 10, "name": "Paid", "status": "paid"},
+      {"stage": 11, "name": "Accredited", "status": "accredited"}
+    ],
+    
+    "fees": {
+      "accreditationFee": 15000,
+      "processingFee": 2500,
+      "total": 17500,
+      "currency": "PHP"
+    },
+    
+    "assessmentCategories": {
+      "signages": {"name": "Signages/Permits/Licenses", "required": "100%"},
+      "sanitary": {"name": "General Sanitary Conditions", "required": "80%"},
+      "personnel": {"name": "Personnel", "required": "100%"},
+      "reception": {"name": "Reception Room", "required": "100%"},
+      "pharmacy": {"name": "Pharmacy Room", "required": "100%"},
+      "examination": {"name": "Examination Room", "required": "100%"},
+      "surgery": {"name": "Surgery Room", "required": "100%"},
+      "surgicalKits": {"name": "Surgical Kits & Consumables", "required": "80%"},
+      "confinement": {"name": "Confinement Area", "required": "80%"},
+      "instruments": {"name": "Instruments and Supplies", "required": "80%"},
+      "medicalRecords": {"name": "Medical Records", "required": "80%"},
+      "diagnosticImaging": {"name": "Diagnostic Imaging", "required": "80%"},
+      "laboratory": {"name": "Laboratory", "required": "80%"}
+    }
+  },
+
+  "events": {
+    "overview": {
+      "description": "PAHA offers workshops, seminars, conventions, and CPE programs",
+      "types": ["Workshops", "Seminars", "Conventions", "Conferences", "Wetlabs", "CPE Programs"],
+      "benefits": ["PRC-accredited CPD units", "Member discounts", "Networking", "Expert speakers"]
+    },
+    
+    "registrationSteps": [
+      "Personal Information",
+      "Professional Details",
+      "Payment & Checkout"
+    ],
+    
+    "paymentMethods": ["Credit Card", "E-Wallet", "Bank Transfer"]
+  },
+
+  "faq": {
+    "membership": [
+      {
+        "question": "How long does membership approval take?",
+        "answer": "Typically 2-4 weeks after a complete application is received and documents are verified."
+      },
+      {
+        "question": "What are the membership fees?",
+        "answer": "Regular: ₱5,000 first year, Associate: ₱3,500, Institutional: ₱10,000, Affiliate: ₱4,500. Renewal is ₱2,000/year for all types."
+      },
+      {
+        "question": "Can I change my membership type?",
+        "answer": "Yes, contact PAHA admin to discuss membership type changes and any applicable fee adjustments."
+      }
+    ],
+    "accreditation": [
+      {
+        "question": "How long is accreditation valid?",
+        "answer": "Accreditation is valid for 3 years from the date of approval."
+      },
+      {
+        "question": "What if I fail a category during review?",
+        "answer": "You'll receive specific remarks for each non-compliant category. Fix the issues and resubmit documents."
+      },
+      {
+        "question": "Do I need to be a member before applying for accreditation?",
+        "answer": "Yes, membership approval is required before accessing the accreditation system."
+      }
+    ],
+    "general": [
+      {
+        "question": "How do I contact PAHA?",
+        "answer": "Email: secretariat@phaa.org.ph, Phone: +63 2 8955 1234, Office: 46 Pres. Quezon St., Marikina City, Mon-Fri 8AM-5PM"
+      },
+      {
+        "question": "How do I reset my password?",
+        "answer": "Click 'Forgot password?' on the login page, enter your email, and check your inbox for a reset link."
+      }
+    ]
+  }
+}

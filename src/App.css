@@ -1,0 +1,4 @@
+/* Styles moved to Tailwind or removed to support full-page layout */
+#root {
+  width: 100%;
+}

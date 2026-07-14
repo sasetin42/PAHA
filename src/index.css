@@ -1,0 +1,327 @@
+@import url('https://fonts.googleapis.com/css2?family=Maven+Pro:wght@400;500;600;700;800;900&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --primary: #1E60A3;
+  --primary-glow: rgba(30, 96, 163, 0.4);
+  --silver: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+  --premium-dark: #0F172A;
+}
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+  body {
+    color: #232323;
+    font-family: 'Maven Pro', sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Maven Pro', sans-serif;
+    letter-spacing: -0.03em;
+    font-weight: 600;
+  }
+  
+  /* Fluid Typography - Scales headings based on viewport width */
+  h1 { font-size: clamp(2.5rem, 8vw, 4.5rem); line-height: 1.05; }
+  h2 { font-size: clamp(2rem, 6vw, 3.5rem); line-height: 1.1; }
+  h3 { font-size: clamp(1.5rem, 4vw, 2.5rem); line-height: 1.2; }
+  h4 { font-size: clamp(1.25rem, 3vw, 1.75rem); line-height: 1.3; }
+
+  /* Global font weight cap at 600 as requested */
+  b, strong, .font-bold, .font-extrabold, .font-black {
+    font-weight: 600 !important;
+  }
+
+  a {
+    color: #1E60A3;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  a:hover {
+    opacity: 0.8;
+  }
+}
+
+/* Custom Utilities from Designs */
+.glass-nav {
+    background: rgba(255, 255, 255, 0.85);
+    /* Light mode default */
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-bottom: 1px solid rgba(0, 0, 0, 0.15);
+}
+
+.dark .glass-nav {
+    background: rgba(205, 239, 230, 0.85);
+    /* Dark mode override */
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.neon-border {
+    box-shadow: 0 0 15px rgba(43, 141, 238, 0.3);
+    border: 1px solid rgba(43, 141, 238, 0.5);
+}
+
+.hero-gradient {
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0) 0%, rgba(246, 247, 248, 0.9) 100%);
+}
+
+.dark .hero-gradient {
+    background: linear-gradient(180deg, rgba(205, 239, 230, 0) 0%, rgba(205, 239, 230, 0.9) 100%);
+}
+
+.glass-card {
+    background: rgba(255, 255, 255, 0.7);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(0, 0, 0, 0.15);
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+}
+
+.dark .glass-card {
+    background: transparent;
+    border: 1px solid rgba(192, 192, 192, 0.2);
+    box-shadow: 0 0 15px rgba(43, 140, 238, 0.1);
+}
+
+.silver-gradient-text {
+    background: linear-gradient(135deg, #1a1a1a 0%, #4a4a4a 50%, #1a1a1a 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+.dark .silver-gradient-text {
+    background: linear-gradient(135deg, #FFFFFF 0%, #C0C0C0 50%, #8E8E8E 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+.glow-border {
+    position: relative;
+}
+
+.glow-border::after {
+    content: '';
+    position: absolute;
+    inset: -1px;
+    background: linear-gradient(45deg, transparent, rgba(43, 140, 238, 0.3), transparent);
+    border-radius: inherit;
+    z-index: -1;
+}
+
+.glass-header {
+    background: rgba(255, 255, 255, 0.8);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-bottom: 1px solid rgba(0, 0, 0, 0.15);
+}
+
+.dark .glass-header {
+    background: rgba(17, 24, 39, 0.85);
+    border-bottom: 1px solid rgba(192, 192, 192, 0.1);
+}
+
+.event-card-gradient {
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.8) 0%, rgba(255, 255, 255, 1) 100%);
+}
+
+.dark .event-card-gradient {
+    background: linear-gradient(180deg, rgba(26, 26, 26, 0.8) 0%, rgba(26, 26, 26, 1) 100%);
+}
+
+.silver-divider {
+    height: 1px;
+    background: linear-gradient(90deg, transparent, #1a1a1a, transparent);
+    opacity: 0.1;
+}
+
+.dark .silver-divider {
+    background: linear-gradient(90deg, transparent, #C0C0C0, transparent);
+    opacity: 0.2;
+}
+
+/* Scrollbar hide utility */
+.no-scrollbar::-webkit-scrollbar {
+    display: none;
+}
+
+.no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+}
+
+.administrative-glass {
+    background: rgba(15, 23, 42, 0.6);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.admin-sidebar-item-active {
+    background: linear-gradient(90deg, rgba(43, 140, 238, 0.15) 0%, transparent 100%);
+    border-left: 3px solid #2b8dee;
+}
+
+.sidebar-transition {
+    transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes slideDown {
+    from { opacity: 0; transform: translateY(-10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-slide-down {
+    animation: slideDown 0.3s ease-out forwards;
+}
+
+/* Custom Scrollbar */
+.custom-scrollbar::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.02);
+    border-radius: 4px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 4px;
+    transition: background 0.3s ease;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: rgba(43, 141, 238, 0.5);
+    /* Primary color with opacity */
+}
+
+/* Custom Animated Border Slide */
+@keyframes border-slide {
+    0% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+}
+
+.animate-border-slide {
+    background-size: 200% 200%;
+    animation: border-slide 4s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+.animate-shimmer {
+  animation: shimmer 2s infinite linear;
+}
+
+
+/* Responsive Layout Utilities */
+.section-padding {
+    @apply py-12 md:py-24 lg:py-32;
+}
+
+.container-tight {
+    @apply max-w-5xl mx-auto px-6;
+}
+
+.responsive-gap {
+    @apply gap-8 md:gap-16 lg:gap-24;
+}
+
+/* Reduced spacing for mobile hero sections */
+.hero-pt {
+    @apply pt-[100px] md:pt-[140px] lg:pt-[180px];
+}
+
+/* Mobile-first card adjustments */
+@media (max-width: 640px) {
+    .glass-card {
+        @apply rounded-2xl p-6;
+    }
+    
+    .rounded-section {
+        @apply rounded-[1.5rem];
+    }
+}
+
+@media (min-width: 641px) {
+    .rounded-section {
+        @apply rounded-[2.5rem];
+    }
+}
+
+/* Modal Animations */
+@keyframes modalPop {
+  0% { opacity: 0; transform: scale(0.95) translateY(10px); }
+  100% { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+
+.animate-modal-pop {
+  animation: modalPop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+/* Modern Hamburger & Circling Border Animations */
+@keyframes spin-slow {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes draw-circle {
+  0% { stroke-dashoffset: 280; }
+  50% { stroke-dashoffset: 0; }
+  100% { stroke-dashoffset: -280; }
+}
+
+.animate-spin-slow {
+  animation: spin-slow 8s linear infinite;
+}
+
+.animate-draw-circle {
+  stroke-dasharray: 280;
+  animation: draw-circle 4s ease-in-out infinite;
+}
+
+/* Ensure navbar is always visible and on top */
+nav.fixed {
+  z-index: 9999 !important;
+}
+
+/* Force navbar visibility override */
+.navbar-force-visible {
+  display: flex !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+}
+
+/* Fix input fields hover and focus border thickness in Forms */
+#memberForm input,
+#memberForm textarea,
+#memberForm select {
+  transition: border-color 0.2s, border-width 0.1s, box-shadow 0.2s;
+}
+
+#memberForm input:hover,
+#memberForm textarea:hover,
+#memberForm select:hover {
+  border-width: 2px !important;
+  border-color: #3b82f6 !important;
+}
+
+#memberForm input:focus,
+#memberForm textarea:focus,
+#memberForm select:focus {
+  border-width: 2px !important;
+  border-color: #1e60a3 !important;
+  box-shadow: 0 0 0 2px rgba(30, 96, 163, 0.15) !important;
+  outline: none !important;
+}
