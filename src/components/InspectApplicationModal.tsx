@@ -11,7 +11,6 @@ import { getEmbeddableUrl } from '../utils/portalUrl';
 import { cleanPhone } from '../utils/phone';
 import VisitingEvaluationModal from './VisitingEvaluationModal';
 import FileViewerModal, { type ViewerFile } from './FileViewerModal';
-import CalendarPicker from './CalendarPicker';
 
 const MEMBERSHIP_DOC_LABELS: Record<string, string> = {
     sec_articles: 'SEC Articles of Incorporation and By-Laws',

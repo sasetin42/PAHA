@@ -8,7 +8,7 @@ import { db, storage } from '../config/firebase';
 import { doc, setDoc, getDoc, serverTimestamp, collection, getDocs, query, where, orderBy, limit, onSnapshot, updateDoc } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { notifyAdmin } from '../utils/notify';
-import CalendarPicker from '../components/CalendarPicker';
+import { CalendarPicker } from '../components/CalendarPicker';
 
 type Step = 1 | 2;
 type PayOption = 'Pay Now' | 'Manual Payment';
@@ -50,15 +50,6 @@ const sexDetails: Record<string, { icon: string; bgClass: string }> = {
     'Male': { icon: 'male', bgClass: 'bg-blue-50 text-blue-500 border-blue-100' },
     'Female': { icon: 'female', bgClass: 'bg-rose-50 text-rose-500 border-rose-100' }
 };
-
-const MONTHS = [
-    'January', 'February', 'March', 'April', 'May', 'June',
-    'July', 'August', 'September', 'October', 'November', 'December'
-];
-
-const startYear = 1930;
-const endYear = new Date().getFullYear();
-const YEARS = Array.from({ length: endYear - startYear + 1 }, (_, i) => endYear - i);
 
 const PaymentPage: React.FC = () => {
     const { user, profile, loading: authLoading } = useAuth();
@@ -112,15 +103,6 @@ const PaymentPage: React.FC = () => {
         };
     }, []);
 
-    useEffect(() => {
-        if (birthdate) {
-            const d = new Date(birthdate);
-            if (!isNaN(d.getTime())) {
-                setCurrentMonth(d.getMonth());
-                setCurrentYear(d.getFullYear());
-            }
-        }
-    }, [birthdate]);
 
     // Step 2 — Payment
     const [payOption, setPayOption] = useState<PayOption>('Pay Now');
@@ -1177,7 +1159,7 @@ const PaymentPage: React.FC = () => {
                                                 <button
                                                     id="sex"
                                                     type="button"
-                                                    className={`${inputCls} flex items-center justify-between cursor-pointer text-left transition-all mt-1.5 ${
+                                                    className={`${inputCls} h-[46px] flex items-center justify-between cursor-pointer text-left transition-all mt-1.5 ${
                                                         !sex ? 'text-slate-400' : 'text-slate-900 font-semibold dark:text-white'
                                                     }`}
                                                     onClick={() => setIsSexOpen(!isSexOpen)}

@@ -119,7 +119,7 @@ export const CalendarPicker: React.FC<CalendarPickerProps> = ({
                 id={id}
                 type="button"
                 disabled={disabled}
-                className={`${inputCls} flex items-center justify-between cursor-pointer text-left transition-all ${
+                className={`${inputCls} h-[46px] flex items-center justify-between cursor-pointer text-left transition-all ${
                     disabled ? 'bg-slate-50 dark:bg-white/[0.03] text-slate-400 cursor-not-allowed' : ''
                 } ${
                     !value ? 'text-slate-400 font-normal' : 'text-slate-800 font-semibold dark:text-white'
