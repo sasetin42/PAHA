@@ -246,8 +246,6 @@ async function postPaycools(url: string, body: Record<string, any>): Promise<any
 // â”€â”€â”€ Main API Cloud Function â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 export const paycoolsApi = onRequest({ 
     cors: true,
-    vpcConnector: 'paha-vpc-con',
-    vpcConnectorEgressSettings: 'ALL_TRAFFIC'
 }, async (req, res) => {
     try {
         let path = req.path.replace(/\/+$/, '');

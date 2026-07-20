@@ -41,11 +41,8 @@ const admin = __importStar(require("firebase-admin"));
 const crypto = __importStar(require("crypto"));
 const paycoolsApi_1 = require("./paycoolsApi");
 Object.defineProperty(exports, "paycoolsApi", { enumerable: true, get: function () { return paycoolsApi_1.paycoolsApi; } });
-// Route all outbound traffic through the Serverless VPC Access connector to get a Static IP
-(0, v2_1.setGlobalOptions)({
-    vpcConnector: 'paha-vpc-con',
-    vpcConnectorEgressSettings: 'ALL_TRAFFIC'
-});
+// Global options (no VPC connector — connector paha-vpc-con not provisioned in this project)
+(0, v2_1.setGlobalOptions)({});
 if (admin.apps.length === 0) {
     admin.initializeApp();
 }
@@ -156,8 +153,6 @@ async function postJson(url, body) {
 }
 exports.createPaycoolsPayment = (0, https_1.onRequest)({
     cors: true,
-    vpcConnector: 'paha-vpc-con',
-    vpcConnectorEgressSettings: 'ALL_TRAFFIC'
 }, async (req, res) => {
     try {
         const { orderId, amount, channelCode, email, mobile, customerName, callbackUrl, redirectUrl, description } = req.body;
@@ -219,8 +214,6 @@ exports.createPaycoolsPayment = (0, https_1.onRequest)({
 // ─── Create QR Payment ───────────────────────────────────────────────────
 exports.createPaycoolsQR = (0, https_1.onRequest)({
     cors: true,
-    vpcConnector: 'paha-vpc-con',
-    vpcConnectorEgressSettings: 'ALL_TRAFFIC'
 }, async (req, res) => {
     try {
         const { orderId, amount, email, customerName, callbackUrl, description } = req.body;

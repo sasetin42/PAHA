@@ -5,11 +5,8 @@ import * as admin from 'firebase-admin';
 import * as crypto from 'crypto';
 import { paycoolsApi } from './paycoolsApi';
 
-// Route all outbound traffic through the Serverless VPC Access connector to get a Static IP
-setGlobalOptions({
-    vpcConnector: 'paha-vpc-con',
-    vpcConnectorEgressSettings: 'ALL_TRAFFIC'
-});
+// Global options (no VPC connector — connector paha-vpc-con not provisioned in this project)
+setGlobalOptions({});
 
 if (admin.apps.length === 0) {
     admin.initializeApp();
@@ -135,8 +132,6 @@ async function postJson(url: string, body: Record<string, unknown>): Promise<any
 
 export const createPaycoolsPayment = onRequest({ 
     cors: true,
-    vpcConnector: 'paha-vpc-con',
-    vpcConnectorEgressSettings: 'ALL_TRAFFIC'
 }, async (req, res) => {
     try {
         const { orderId, amount, channelCode, email, mobile, customerName, callbackUrl, redirectUrl, description } = req.body;
@@ -204,8 +199,6 @@ export const createPaycoolsPayment = onRequest({
 // ─── Create QR Payment ───────────────────────────────────────────────────
 export const createPaycoolsQR = onRequest({ 
     cors: true,
-    vpcConnector: 'paha-vpc-con',
-    vpcConnectorEgressSettings: 'ALL_TRAFFIC'
 }, async (req, res) => {
     try {
         const { orderId, amount, email, customerName, callbackUrl, description } = req.body;
