@@ -15,8 +15,7 @@ const STAGES = [
   { number: 3 as const, label: 'Site Visit', icon: 'event' },
   { number: 4 as const, label: 'Compliance', icon: 'folder_open' },
   { number: 5 as const, label: 'Admin Review', icon: 'rate_review' },
-  { number: 6 as const, label: 'Approved', icon: 'verified' },
-  { number: 7 as const, label: 'For Payment', icon: 'payments' },
+  { number: 7 as const, label: 'Approved. For Payment', icon: 'payments' },
   { number: 8 as const, label: 'Accredited', icon: 'workspace_premium' },
 ];
 
@@ -30,6 +29,8 @@ const STATUS_COLORS: Record<string, { bg: string; text: string; border: string }
   inspection_completed: { bg: 'bg-emerald-100', text: 'text-emerald-700', border: 'border-emerald-300' },
   vef_failed: { bg: 'bg-red-100', text: 'text-red-700', border: 'border-red-300' },
   revisit_requested: { bg: 'bg-amber-100', text: 'text-amber-700', border: 'border-amber-300' },
+  visit_date_proposed: { bg: 'bg-amber-100', text: 'text-amber-700', border: 'border-amber-300' },
+  revisit_approved: { bg: 'bg-blue-100', text: 'text-blue-700', border: 'border-blue-300' },
   accreditation_banned: { bg: 'bg-red-100', text: 'text-red-700', border: 'border-red-300' },
   for_compliance_submission: { bg: 'bg-amber-100', text: 'text-amber-700', border: 'border-amber-300' },
   under_review: { bg: 'bg-purple-100', text: 'text-purple-700', border: 'border-purple-300' },
@@ -58,7 +59,7 @@ const StageTracker: React.FC<StageTrackerProps> = ({
 
   const getStageIcon = (stageNum: number, status: string) => {
     if (status === 'completed') return 'check_circle';
-    if (status === 'active') return STAGES[stageNum - 1]?.icon || 'circle';
+    if (status === 'active') return STAGES.find(s => s.number === stageNum)?.icon || 'circle';
     return 'lock';
   };
 

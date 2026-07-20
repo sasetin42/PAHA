@@ -36,7 +36,9 @@ export type WorkflowStatus =
   | 'paid'
   | 'accredited'
   | 'rejected'
-  | 'accreditation_banned';
+  | 'accreditation_banned'
+  | 'visit_date_proposed'
+  | 'revisit_approved';
 
 export const WORKFLOW_STATUS_LABELS: Record<WorkflowStatus, string> = {
   not_started: 'Intent Letter Submission',
@@ -47,7 +49,9 @@ export const WORKFLOW_STATUS_LABELS: Record<WorkflowStatus, string> = {
   for_site_visit: 'Wait for Visitation',
   inspection_completed: 'Inspection Completed',
   vef_failed: 'Site Visit Not Passed — Revisit Needed',
-  revisit_requested: 'Revisit Requested — Awaiting Approval',
+  revisit_requested: 'Requesting for Visitation',
+  visit_date_proposed: 'Visit Date Proposed — Awaiting Your Response',
+  revisit_approved: 'Revisitation Approved',
   for_compliance_submission: 'For Compliance Submission',
   under_review: 'Under Review',
   needs_compliance: 'Needs Compliance',
@@ -77,11 +81,17 @@ export interface VisitData {
   scheduledTime: string;
   inspectorName: string;
   notes: string;
-  confirmedAt?: string;
+  confirmedAt?: string | null;
   completedAt?: string;
   completedBy?: string;
   /** Member-proposed revisit dates (3 options), awaiting admin approval of one. */
   preferredRevisitDates?: string[];
+  /** Admin-proposed alternate date when none of the member's preferred dates work — awaiting member's response. */
+  adminProposedDate?: string;
+  /** Whether the pending admin-proposed date belongs to a revisit round (resolves to 'revisit_approved') or the initial round (resolves to 'for_site_visit') once the member accepts it. */
+  proposedForRevisit?: boolean;
+  /** Set when the member flags the admin-proposed date doesn't work for them — surfaces a "propose a new date directly" panel on the admin side instead of silently waiting for a response. */
+  proposalDeclinedAt?: string;
 }
 
 export interface UploadedFile {
@@ -167,6 +177,8 @@ export interface AccreditationApplication {
   updatedAt: string;
   completedAt?: string;
   rejectionReason?: string;
+  /** Every site-visit date ever offered by the member (initial + all revisit rounds) — once used, a date must never be offered again. */
+  usedVisitDates?: string[];
   /** Reason recorded when the final review (post-site-visit) is declined. */
   complianceRejectionReason?: string;
   loiPdfUrl?: string;

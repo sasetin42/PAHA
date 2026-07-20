@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { db, auth } from '../config/firebase';
 import { collection, addDoc, doc, setDoc, serverTimestamp, getDocs } from 'firebase/firestore';
 import { createUserWithEmailAndPassword, updateProfile, signOut, sendEmailVerification } from 'firebase/auth';
@@ -15,6 +15,7 @@ interface FormState {
     phone: string;
     businessStructure: BusinessStructure | '';
     representativeName: string;
+    representativePhone: string;
     prcLicenseNo: string;
     password: string;
     confirmPassword: string;
@@ -26,12 +27,35 @@ interface Props {
     onClose: () => void;
 }
 
+const structureDetails: Record<BusinessStructure, { icon: string; bgClass: string }> = {
+    'Sole Proprietorship': { icon: 'person', bgClass: 'bg-blue-50 text-blue-500 border-blue-100' },
+    'Partnership': { icon: 'handshake', bgClass: 'bg-emerald-50 text-emerald-500 border-emerald-100' },
+    'Corporation': { icon: 'corporate_fare', bgClass: 'bg-indigo-50 text-indigo-500 border-indigo-100' },
+    'Veterinary Teaching Hospital': { icon: 'local_hospital', bgClass: 'bg-rose-50 text-rose-500 border-rose-100' },
+    'University-affiliated teaching hospital': { icon: 'school', bgClass: 'bg-amber-50 text-amber-500 border-amber-100' }
+};
+
 const MembershipFormModal: React.FC<Props> = ({ isOpen, onClose }) => {
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [showSuccess, setShowSuccess] = useState(false);
     const [errorMsg, setErrorMsg] = useState<string | null>(null);
     const [showPassword, setShowPassword] = useState(false);
     const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+    const [isStructureOpen, setIsStructureOpen] = useState(false);
+    const dropdownRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+                setIsStructureOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => {
+            document.removeEventListener('mousedown', handleClickOutside);
+        };
+    }, []);
+
     const [formData, setFormData] = useState<FormState>({
         membershipType: 'Regular',
         clinicName: '',
@@ -41,6 +65,7 @@ const MembershipFormModal: React.FC<Props> = ({ isOpen, onClose }) => {
         phone: '',
         businessStructure: '',
         representativeName: '',
+        representativePhone: '',
         prcLicenseNo: '',
         password: '',
         confirmPassword: '',
@@ -64,6 +89,7 @@ const MembershipFormModal: React.FC<Props> = ({ isOpen, onClose }) => {
                 phone: '',
                 businessStructure: '',
                 representativeName: '',
+                representativePhone: '',
                 prcLicenseNo: '',
                 password: '',
                 confirmPassword: '',
@@ -77,6 +103,10 @@ const MembershipFormModal: React.FC<Props> = ({ isOpen, onClose }) => {
         e.preventDefault();
         setErrorMsg(null);
         if (!formData.confirmed) return;
+        if (!formData.businessStructure) {
+            setErrorMsg('Please select a business structure.');
+            return;
+        }
         if (formData.password.length < 6) {
             setErrorMsg('Password must be at least 6 characters.');
             return;
@@ -109,6 +139,7 @@ const MembershipFormModal: React.FC<Props> = ({ isOpen, onClose }) => {
                 clinicAddress: formData.clinicAddress,
                 address: formData.clinicAddress,
                 phone: formData.phone ? `+63${formData.phone}` : '',
+                representativePhone: formData.representativePhone ? `+63${formData.representativePhone}` : '',
                 prcLicense: formData.prcLicenseNo,
                 role: 'member',
                 isAdmin: false,
@@ -133,7 +164,7 @@ const MembershipFormModal: React.FC<Props> = ({ isOpen, onClose }) => {
                         name: formData.representativeName.trim(),
                         designation: 'Primary Representative',
                         prc: formData.prcLicenseNo || '',
-                        contact: formData.phone ? `+63${formData.phone}` : '',
+                        contact: formData.representativePhone ? `+63${formData.representativePhone}` : '',
                         email: formData.email.trim(),
                         isPrimary: true,
                         status: 'active',
@@ -170,6 +201,7 @@ const MembershipFormModal: React.FC<Props> = ({ isOpen, onClose }) => {
                 clinicAddress: formData.clinicAddress,
                 address: formData.clinicAddress,
                 mobile: formData.phone ? `+63${formData.phone}` : '',
+                representativePhone: formData.representativePhone ? `+63${formData.representativePhone}` : '',
                 createdAt: serverTimestamp(),
                 date: new Date().toISOString(),
                 status: 'pending'
@@ -411,9 +443,12 @@ const MembershipFormModal: React.FC<Props> = ({ isOpen, onClose }) => {
                                                      required 
                                                      placeholder="9XX XXX XXXX" 
                                                      className={inputCls + ' pl-16'}
-                                                     value={formData.phone ? (formData.phone.startsWith('+63') ? formData.phone.slice(3) : formData.phone.startsWith('63') && formData.phone.length === 12 ? formData.phone.slice(2) : formData.phone.startsWith('0') && formData.phone.length === 11 ? formData.phone.slice(1) : formData.phone) : ''} 
+                                                     value={formData.phone ? (formData.phone.startsWith('+63') ? formData.phone.slice(3) : formData.phone.startsWith('63') && formData.phone.length === 12 ? formData.phone.slice(2) : formData.phone.startsWith('0') && formData.phone.length === 11 ? formData.phone.slice(1) : formData.phone) : ''}
                                                      onChange={e => {
-                                                         const cleaned = e.target.value.replace(/\D/g, '').slice(0, 10);
+                                                         let cleaned = e.target.value.replace(/\D/g, '');
+                                                         if (cleaned.startsWith('63') && cleaned.length > 10) cleaned = cleaned.slice(2);
+                                                         if (cleaned.startsWith('0') && cleaned.length > 10) cleaned = cleaned.slice(1);
+                                                         cleaned = cleaned.slice(0, 10);
                                                          setFormData({ ...formData, phone: cleaned });
                                                      }}
                                                  />
@@ -430,19 +465,72 @@ const MembershipFormModal: React.FC<Props> = ({ isOpen, onClose }) => {
                                     </div>
                                     <div className="flex flex-col gap-4">
                                         {/* Business Structure — full width */}
-                                        <div>
+                                        <div className="relative" ref={dropdownRef}>
                                             <label htmlFor="m-businessStructure" className={labelCls}>Business Structure</label>
-                                            <select id="m-businessStructure" name="businessStructure" required className={inputCls + ' appearance-none cursor-pointer'}
-                                                value={formData.businessStructure} onChange={e => setFormData({ ...formData, businessStructure: e.target.value as BusinessStructure })}>
-                                                <option value="" disabled>Select structure</option>
-                                                <option value="Sole Proprietorship">Sole Proprietorship</option>
-                                                <option value="Partnership">Partnership</option>
-                                                <option value="Corporation">Corporation</option>
-                                                <option value="Veterinary Teaching Hospital">Veterinary Teaching Hospital</option>
-                                                <option value="University-affiliated teaching hospital">University-affiliated teaching hospital</option>
-                                            </select>
+                                            <button
+                                                id="m-businessStructure"
+                                                type="button"
+                                                className={`${inputCls} flex items-center justify-between cursor-pointer text-left transition-all ${
+                                                    !formData.businessStructure ? 'text-slate-400' : 'text-slate-900 font-semibold'
+                                                }`}
+                                                onClick={() => setIsStructureOpen(!isStructureOpen)}
+                                            >
+                                                <div className="flex items-center gap-2.5">
+                                                    {formData.businessStructure && (
+                                                        <span className={`w-6 h-6 rounded-lg flex items-center justify-center text-xs border ${structureDetails[formData.businessStructure].bgClass}`}>
+                                                            <span className="material-symbols-outlined text-[14px]">{structureDetails[formData.businessStructure].icon}</span>
+                                                        </span>
+                                                    )}
+                                                    <span>{formData.businessStructure || 'Select structure'}</span>
+                                                </div>
+                                                <span className={`material-symbols-outlined transition-transform duration-300 text-slate-400 ${isStructureOpen ? 'rotate-180 text-primary' : ''}`}>
+                                                    keyboard_arrow_down
+                                                </span>
+                                            </button>
+                                            
+                                            <div className={`absolute left-0 right-0 mt-2 bg-white border border-slate-100 rounded-2xl shadow-2xl z-[9999] overflow-hidden transition-all duration-300 origin-top ${
+                                                isStructureOpen 
+                                                    ? 'opacity-100 translate-y-0 scale-100 pointer-events-auto' 
+                                                    : 'opacity-0 -translate-y-2 scale-95 pointer-events-none'
+                                            }`}>
+                                                <ul className="py-1.5 text-sm max-h-60 overflow-y-auto">
+                                                    {['Sole Proprietorship', 'Partnership', 'Corporation', 'Veterinary Teaching Hospital', 'University-affiliated teaching hospital'].map((option) => {
+                                                        const details = structureDetails[option as BusinessStructure];
+                                                        return (
+                                                            <li key={option}>
+                                                                <button
+                                                                    type="button"
+                                                                    className={`w-full px-4 py-3 text-left transition-colors flex items-center justify-between group ${
+                                                                        formData.businessStructure === option 
+                                                                            ? 'bg-primary/5 text-primary font-bold' 
+                                                                            : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                                                                    }`}
+                                                                    onClick={() => {
+                                                                        setFormData({ ...formData, businessStructure: option as BusinessStructure });
+                                                                        setIsStructureOpen(false);
+                                                                    }}
+                                                                >
+                                                                    <div className="flex items-center gap-3">
+                                                                        <span className={`w-8 h-8 rounded-xl flex items-center justify-center border transition-colors ${
+                                                                            formData.businessStructure === option 
+                                                                                ? details.bgClass 
+                                                                                : 'bg-slate-50 text-slate-400 border-slate-100 group-hover:bg-white'
+                                                                        }`}>
+                                                                            <span className="material-symbols-outlined text-[18px]">{details.icon}</span>
+                                                                        </span>
+                                                                        <span>{option}</span>
+                                                                    </div>
+                                                                    {formData.businessStructure === option && (
+                                                                        <span className="material-symbols-outlined text-primary text-base font-bold">check</span>
+                                                                    )}
+                                                                </button>
+                                                            </li>
+                                                        );
+                                                    })}
+                                                </ul>
+                                            </div>
                                         </div>
-                                        {/* Representative Name | PRC License */}
+                                        {/* Representative Name & Representative Phone */}
                                         <div className="grid grid-cols-2 gap-4">
                                             <div>
                                                 <label htmlFor="m-representativeName" className={labelCls}>Representative Name</label>
@@ -450,29 +538,54 @@ const MembershipFormModal: React.FC<Props> = ({ isOpen, onClose }) => {
                                                     value={formData.representativeName} onChange={e => setFormData({ ...formData, representativeName: e.target.value })} />
                                             </div>
                                             <div>
-                                                <label htmlFor="m-prcLicenseNo" className={labelCls}>PRC License No.</label>
-                                                <input 
-                                                    id="m-prcLicenseNo" 
-                                                    name="prcLicenseNo" 
-                                                    type="text" 
-                                                    required 
-                                                    placeholder="License number" 
-                                                    className={inputCls}
-                                                    value={formData.prcLicenseNo} 
-                                                    onChange={e => {
-                                                        const cleaned = e.target.value.replace(/\D/g, '').slice(0, 6);
-                                                        setFormData({ ...formData, prcLicenseNo: cleaned });
-                                                    }}
-                                                    onBlur={() => {
-                                                        if (formData.prcLicenseNo && formData.prcLicenseNo.length < 6) {
-                                                            setFormData(prev => ({
-                                                                ...prev,
-                                                                prcLicenseNo: prev.prcLicenseNo.padStart(6, '0')
-                                                            }));
-                                                        }
-                                                    }}
-                                                />
+                                                <label htmlFor="m-representativePhone" className={labelCls}>Representative Phone</label>
+                                                <div className="relative flex items-center w-full">
+                                                    <div className="absolute left-3 flex items-center gap-1.5 text-xs font-bold text-slate-500 dark:text-slate-400 select-none pointer-events-none">
+                                                        <span className="font-semibold">+63</span>
+                                                    </div>
+                                                    <input 
+                                                        id="m-representativePhone" 
+                                                        name="representativePhone" 
+                                                        type="text" 
+                                                        required 
+                                                        placeholder="9XX XXX XXXX" 
+                                                        className={inputCls + ' pl-12'}
+                                                        value={formData.representativePhone ? (formData.representativePhone.startsWith('+63') ? formData.representativePhone.slice(3) : formData.representativePhone.startsWith('63') && formData.representativePhone.length === 12 ? formData.representativePhone.slice(2) : formData.representativePhone.startsWith('0') && formData.representativePhone.length === 11 ? formData.representativePhone.slice(1) : formData.representativePhone) : ''}
+                                                        onChange={e => {
+                                                            let cleaned = e.target.value.replace(/\D/g, '');
+                                                            if (cleaned.startsWith('63') && cleaned.length > 10) cleaned = cleaned.slice(2);
+                                                            if (cleaned.startsWith('0') && cleaned.length > 10) cleaned = cleaned.slice(1);
+                                                            cleaned = cleaned.slice(0, 10);
+                                                            setFormData({ ...formData, representativePhone: cleaned });
+                                                        }}
+                                                    />
+                                                </div>
                                             </div>
+                                        </div>
+                                        {/* PRC License No. */}
+                                        <div>
+                                            <label htmlFor="m-prcLicenseNo" className={labelCls}>PRC License No.</label>
+                                            <input 
+                                                id="m-prcLicenseNo" 
+                                                name="prcLicenseNo" 
+                                                type="text" 
+                                                required 
+                                                placeholder="License number" 
+                                                className={inputCls}
+                                                value={formData.prcLicenseNo} 
+                                                onChange={e => {
+                                                    const cleaned = e.target.value.replace(/\D/g, '').slice(0, 6);
+                                                    setFormData({ ...formData, prcLicenseNo: cleaned });
+                                                }}
+                                                onBlur={() => {
+                                                    if (formData.prcLicenseNo && formData.prcLicenseNo.length < 6) {
+                                                        setFormData(prev => ({
+                                                            ...prev,
+                                                            prcLicenseNo: prev.prcLicenseNo.padStart(6, '0')
+                                                        }));
+                                                    }
+                                                }}
+                                            />
                                         </div>
                                         {/* Password | Re-type Password */}
                                         <div className="grid grid-cols-2 gap-4">

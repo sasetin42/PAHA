@@ -91,7 +91,7 @@ const committeesData: Committee[] = [
 ];
 
 const Committees: React.FC = () => {
-    const { committeeMembers } = useAdmin();
+    const { committeeMembers, committeeCovers } = useAdmin();
     const [searchQuery, setSearchQuery] = useState('');
     const [selectedCategory, setSelectedCategory] = useState<'All' | 'Organization' | 'Outreach' | 'Standards'>('All');
 
@@ -259,8 +259,23 @@ const Committees: React.FC = () => {
                         const members = committeeMembers.filter(m => m.committeeId === committee.id)
                             .sort((a, b) => (a.displayOrder || 99) - (b.displayOrder || 99));
 
+                        const coverPhoto = committeeCovers[committee.id];
+
                         return (
-                            <div key={committee.id} className="bg-white dark:bg-slate-900 rounded-[28px] p-6 md:p-8 shadow-sm border border-slate-150 dark:border-white/5">
+                            <div key={committee.id} className="bg-white dark:bg-slate-900 rounded-[28px] overflow-hidden shadow-sm border border-slate-150 dark:border-white/5">
+                                {/* Group / Cover Photo — not a profile picture, a wide banner shot of the committee */}
+                                <div className="relative w-full aspect-[21/9] bg-slate-100 dark:bg-slate-800">
+                                    {coverPhoto ? (
+                                        <img src={coverPhoto} alt={`${committee.name} group photo`} className="w-full h-full object-cover" />
+                                    ) : (
+                                        <div className={`w-full h-full flex items-center justify-center ${committee.bg}`}>
+                                            <span className={`material-symbols-outlined text-4xl opacity-40 ${committee.color}`}>groups</span>
+                                        </div>
+                                    )}
+                                    <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/60 to-transparent h-16" />
+                                </div>
+
+                                <div className="p-6 md:p-8">
                                 <div className="flex items-center gap-3.5 mb-6 pb-4 border-b border-slate-100 dark:border-white/5">
                                     <div className={`w-10 h-10 rounded-xl ${committee.bg} flex items-center justify-center shrink-0`}>
                                         <span className={`material-symbols-outlined text-lg ${committee.color}`}>
@@ -297,6 +312,7 @@ const Committees: React.FC = () => {
                                             </div>
                                         ))
                                     )}
+                                </div>
                                 </div>
                             </div>
                         );

@@ -122,6 +122,16 @@ const AccreditationChecklist: React.FC<Props> = ({ standard, mode, value, onChan
         onChange({ ...value, [id]: !value[id] });
     };
 
+    const handleMarkAll = () => {
+        if (readOnly) return;
+        const allChecked: Record<string, boolean> = { ...value };
+        standard.forEach(section => {
+            (section.compulsory || []).forEach(item => { allChecked[item.id] = true; });
+            (section.scored || []).forEach(item => { allChecked[item.id] = true; });
+        });
+        onChange(allChecked);
+    };
+
     // Only render majors present in the provided standard (normally all 8)
     const majors = MAJOR_SECTIONS
         .map(m => ({ ...m, sections: m.sections.filter(s => standard.some(x => x.id === s.id)) }))
@@ -131,6 +141,34 @@ const AccreditationChecklist: React.FC<Props> = ({ standard, mode, value, onChan
 
     return (
         <div className="space-y-3">
+            {mode === 'self-assessment' && !readOnly && (
+                <div className="flex justify-end mb-4">
+                    <label className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-primary/10 text-primary border border-primary/20 cursor-pointer hover:bg-primary/20 transition-colors">
+                        <input 
+                            type="checkbox" 
+                            className="size-4 accent-primary"
+                            checked={standard.reduce((acc, s) => {
+                                const compulsory = (s.compulsory || []).every(i => value[i.id]);
+                                const scored = (s.scored || []).every(i => value[i.id]);
+                                return acc && compulsory && scored;
+                            }, true)}
+                            onChange={(e) => {
+                                if (e.target.checked) handleMarkAll();
+                                else {
+                                    const allUnchecked: Record<string, boolean> = { ...value };
+                                    standard.forEach(s => {
+                                        (s.compulsory || []).forEach(i => { allUnchecked[i.id] = false; });
+                                        (s.scored || []).forEach(i => { allUnchecked[i.id] = false; });
+                                    });
+                                    onChange(allUnchecked);
+                                }
+                            }}
+                        />
+                        <span className="text-xs font-bold uppercase tracking-wider">Mark All as Ready</span>
+                    </label>
+                </div>
+            )}
+
             {majors.map(major => {
                 const results = major.sections.map(s => computeSectionResult(s, value));
                 const passedCount = results.filter(r => r.passed).length;

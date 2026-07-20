@@ -265,6 +265,8 @@ interface AdminContextType {
     addCommitteeMember: (member: Omit<CommitteeMember, 'id'>) => Promise<void>;
     updateCommitteeMember: (id: string, updates: Partial<CommitteeMember>) => Promise<void>;
     deleteCommitteeMember: (id: string) => Promise<void>;
+    committeeCovers: Record<string, string>;
+    updateCommitteeCover: (committeeId: string, imageUrl: string) => Promise<void>;
     formerOfficers: FormerOfficer[];
     addFormerOfficer: (officer: Omit<FormerOfficer, 'id'>) => Promise<void>;
     updateFormerOfficer: (id: string, updates: Partial<FormerOfficer>) => Promise<void>;
@@ -541,6 +543,7 @@ export const AdminProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     const [announcements, setAnnouncements] = useState<Announcement[]>([]);
     const [registrations, setRegistrations] = useState<EventRegistration[]>([]);
     const [committeeMembers, setCommitteeMembers] = useState<CommitteeMember[]>([]);
+    const [committeeCovers, setCommitteeCovers] = useState<Record<string, string>>({});
     const [formerOfficers, setFormerOfficers] = useState<FormerOfficer[]>([]);
     const [partners, setPartners] = useState<PartnerLogo[]>([]);
     const [siteConfig, setSiteConfig] = useState<SiteConfig>(defaultSiteConfig);
@@ -737,6 +740,16 @@ export const AdminProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         return () => unsubscribe();
     }, []);
 
+    // Committee Cover Photos (group photos, keyed by committeeId)
+    useEffect(() => {
+        const unsubscribe = onSnapshot(doc(db, 'settings', 'committeeCovers'), (snapshot) => {
+            setCommitteeCovers(snapshot.exists() ? (snapshot.data() as Record<string, string>) : {});
+        }, (error) => {
+            console.error("Error fetching committeeCovers:", error);
+        });
+        return () => unsubscribe();
+    }, []);
+
     // Former Officers
     useEffect(() => {
         const q = query(collection(db, 'former_officers'), orderBy('year', 'desc'));
@@ -835,6 +848,21 @@ export const AdminProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                         read: false,
                         createdAt: serverTimestamp(),
                     });
+
+                    // Admin-side audit notification — mirrors the "Membership Approved"
+                    // notification below so rejections show up in the admin feed too.
+                    const rejectedFullName = (appData as any).fullName || (appData as any).ownerName
+                        || `${appData.firstName || ''} ${appData.lastName || ''}`.trim() || 'An applicant';
+                    await addDoc(collection(db, 'admin_notifications'), {
+                        type: 'application',
+                        title: 'Membership Rejected',
+                        body: rejectionReason
+                            ? `${rejectedFullName}'s membership application was rejected. Reason: ${rejectionReason}`
+                            : `${rejectedFullName}'s membership application was rejected.`,
+                        link: 'applications',
+                        read: false,
+                        createdAt: serverTimestamp(),
+                    }).catch(() => {});
                 }
             } catch (err) {
                 console.error('[AdminContext] Error sending rejection notification:', err);
@@ -1037,6 +1065,11 @@ export const AdminProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
         // Remove the directory entry regardless (no-op if the CF already deleted it)
         await deleteDoc(doc(db, 'members', id)).catch(() => {});
+        
+        // Also ensure the user profile is deleted if uid was resolved
+        if (uid) {
+            await deleteDoc(doc(db, 'users', uid)).catch(() => {});
+        }
     };
 
 
@@ -1273,6 +1306,10 @@ export const AdminProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         await deleteDoc(doc(db, 'committee_members', id));
     };
 
+    const updateCommitteeCover = async (committeeId: string, imageUrl: string) => {
+        await setDoc(doc(db, 'settings', 'committeeCovers'), { [committeeId]: imageUrl }, { merge: true });
+    };
+
 
     const addFormerOfficer = async (officer: Omit<FormerOfficer, 'id'>) => {
         await addDoc(collection(db, 'former_officers'), officer);
@@ -1324,7 +1361,7 @@ export const AdminProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     return (
         <AdminContext.Provider value={{
             messages, applications, accreditationSubmissions, siteConfig, pages, members, events, announcements, registrations,
-            committeeMembers,
+            committeeMembers, committeeCovers,
             addMessage, addApplication, updateSiteConfig, updateApplicationStatus, deleteApplication, updatePageSection, updatePage,
             addMember, updateMember, deleteMember, toggleMemberActive,
             addEvent, updateEvent, deleteEvent,
@@ -1333,7 +1370,7 @@ export const AdminProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             updateEventRegistration, deleteEventRegistration,
             uploadImage, uploadFile, processFileForUpload,
             updateEventPartial, deleteFile, getNewEventId, resetPageToDefault,
-            addCommitteeMember, updateCommitteeMember, deleteCommitteeMember,
+            addCommitteeMember, updateCommitteeMember, deleteCommitteeMember, updateCommitteeCover,
             formerOfficers, addFormerOfficer, updateFormerOfficer, deleteFormerOfficer,
             partners, addPartner, updatePartner, deletePartner,
             syncStatus,

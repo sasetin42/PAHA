@@ -175,7 +175,7 @@ exports.createPaycoolsPayment = (0, https_1.onRequest)({
         let cleanMobile = String(mobile || '').replace(/\D/g, '');
         const last10 = cleanMobile.slice(-10);
         if (last10.length === 10 && last10.startsWith('9')) {
-            cleanMobile = '0' + last10;
+            cleanMobile = '63' + last10;
         }
         else {
             res.status(400).json({ success: false, error: 'A valid Philippine mobile number starting with 09 (or +639) is required.' });
@@ -505,14 +505,26 @@ exports.deleteMemberAccount = (0, https_1.onCall)(async (request) => {
             console.error('[deleteMemberAccount] Storage cleanup error:', storageErr);
         }
     }
-    // 10. Firebase Auth account
+    // 10. Revoke refresh tokens + delete Firebase Auth account
     if (uid) {
         try {
+            await admin.auth().revokeRefreshTokens(uid);
+            console.log(`[deleteMemberAccount] Revoked refresh tokens for ${uid}`);
+        }
+        catch (revokeErr) {
+            if (revokeErr.code !== 'auth/user-not-found') {
+                console.error('[deleteMemberAccount] Revoke refresh tokens error:', revokeErr);
+                throw new https_1.HttpsError('internal', 'Failed to revoke refresh tokens');
+            }
+        }
+        try {
             await admin.auth().deleteUser(uid);
+            console.log(`[deleteMemberAccount] Deleted Firebase Auth user: ${uid}`);
         }
         catch (authErr) {
             if (authErr.code !== 'auth/user-not-found') {
                 console.error('[deleteMemberAccount] Auth deletion error:', authErr);
+                throw new https_1.HttpsError('internal', 'Failed to delete Firebase Auth user');
             }
         }
     }

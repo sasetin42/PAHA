@@ -388,6 +388,8 @@ const AccreditationManager: React.FC = () => {
       inspection_completed: { bg: 'bg-emerald-100', text: 'text-emerald-700' },
       vef_failed: { bg: 'bg-red-100', text: 'text-red-700' },
       revisit_requested: { bg: 'bg-amber-100', text: 'text-amber-700' },
+      visit_date_proposed: { bg: 'bg-amber-100', text: 'text-amber-700' },
+      revisit_approved: { bg: 'bg-blue-100', text: 'text-blue-700' },
       accreditation_banned: { bg: 'bg-red-100', text: 'text-red-700' },
       for_compliance_submission: { bg: 'bg-amber-100', text: 'text-amber-700' },
       under_review: { bg: 'bg-purple-100', text: 'text-purple-700' },
@@ -841,7 +843,7 @@ const AccreditationManager: React.FC = () => {
                   </div>
                 )}
 
-                {selectedApp.status === 'for_payment' && (
+                {(selectedApp.status === 'for_payment' || selectedApp.status === 'paid') && (
                   <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-6">
                     <h3 className="text-lg font-bold text-slate-800 dark:text-white mb-4 flex items-center gap-2">
                       <span className="material-symbols-outlined text-[#2563EB]">payments</span>
@@ -849,7 +851,10 @@ const AccreditationManager: React.FC = () => {
                     </h3>
                     {selectedApp.paymentData?.submittedAt && !selectedApp.paymentData?.confirmedAt && !selectedApp.paymentData?.rejectedAt ? (
                       <div className="bg-amber-50 dark:bg-amber-900/20 rounded-xl p-6 border border-amber-200 dark:border-amber-800">
-                        <h4 className="font-bold text-amber-800 dark:text-amber-200 mb-3">Payment Submitted</h4>
+                        <h4 className="font-bold text-amber-800 dark:text-amber-200 mb-1 flex items-center gap-2">
+                          <span className="material-symbols-outlined text-base">pending</span>
+                          Payment Proof Submitted — Awaiting Admin Confirmation
+                        </h4>
                         <p className="text-sm text-amber-700 dark:text-amber-300 mb-4">
                           Submitted: {new Date(selectedApp.paymentData.submittedAt).toLocaleString()}
                         </p>

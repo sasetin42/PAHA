@@ -17,30 +17,33 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, adminOnly = f
     if (loading) {
         return (
             <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50 dark:bg-[#0F172A] p-4 transition-colors duration-300">
-                <div className="flex flex-col items-center max-w-sm w-full text-center space-y-6">
-                    {/* Logo Section with breathing/pulse animation */}
-                    <div className="relative flex items-center justify-center p-2 rounded-2xl bg-white dark:bg-[#1E293B] shadow-xl border border-slate-100 dark:border-white/5 animate-pulse">
+                <div className="flex flex-col items-center max-w-lg w-full text-center space-y-6">
+                    {/* Logo Section without background box and with modern breathing animation */}
+                    <div className="relative flex items-center justify-center">
                         <img 
                             src={loadingLogoUrl || logoUrl || "/paha-logo.png"} 
                             alt="PAHA Logo" 
-                            className="h-20 w-auto object-contain" 
+                            loading="eager"
+                            fetchPriority="high"
+                            className="h-36 md:h-40 w-auto object-contain animate-logo-float" 
                         />
                     </div>
 
                     {/* Progress Indicator */}
-                    <div className="flex flex-col items-center space-y-3">
-                        <div className="flex gap-1.5 justify-center items-center h-4">
-                            <span className="w-2.5 h-2.5 bg-primary rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></span>
-                            <span className="w-2.5 h-2.5 bg-primary/70 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></span>
-                            <span className="w-2.5 h-2.5 bg-primary/40 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></span>
+                    <div className="flex flex-col items-center space-y-4">
+                        <div className="flex gap-2.5 justify-center items-center h-6">
+                            <span className="w-3 h-3 bg-primary rounded-full animate-modern-dot" style={{ animationDelay: '0ms' }}></span>
+                            <span className="w-3 h-3 bg-primary rounded-full animate-modern-dot" style={{ animationDelay: '200ms' }}></span>
+                            <span className="w-3 h-3 bg-primary rounded-full animate-modern-dot" style={{ animationDelay: '400ms' }}></span>
                         </div>
-                        <p className="text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-[0.25em]">PAHA - Philippines Animal Hospital Association</p>
+                        <p className="text-[10px] sm:text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-[0.2em] sm:tracking-[0.25em] whitespace-nowrap overflow-hidden text-ellipsis select-none">
+                            PAHA - Philippines Animal Hospital Association
+                        </p>
                     </div>
                 </div>
             </div>
         );
     }
-
     // Redirect to login if not authenticated
     if (!user) {
         const redirectTo = adminOnly ? '/admin/login' : '/login';

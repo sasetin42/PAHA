@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useAdmin } from '../context/AdminContext';
@@ -14,8 +14,38 @@ import Inbox from './Inbox';
 import { notifyAdmin } from '../utils/notify';
 import { STANDARD_2026 } from '../data/accreditationStandard2026';
 import { computeGapSummary } from '../utils/evaluationScoring';
+import { SOLE_PROPRIETORSHIP_REQS, PARTNERSHIP_CORP_REQS, TEACHING_HOSPITAL_REQS } from '../data/membershipRequirements';
 
 type Tab = 'overview' | 'membership' | 'accreditation' | 'events' | 'notifications' | 'profile' | 'inbox';
+
+// Every WorkflowStatus mapped to its 1-8 pipeline stage — mirrors the stage
+// numbering used by StageTracker/AccreditationPipeline (stage 6 retired,
+// merged into 7). Used to compute an accurate "Accreditation" progress
+// percentage on the dashboard overview card; the previous version only knew
+// about 9 of the 20 possible statuses and silently showed 0% for the rest
+// (e.g. loi_approved, visit_date_proposed, revisit_approved, vef_failed).
+const ACCRED_STAGE_ORDER: Record<string, number> = {
+    not_started: 1,
+    intent_submitted: 1,
+    intent_resubmitted: 1,
+    rejected: 1,
+    accreditation_banned: 1,
+    loi_approved: 2,
+    self_assessment_completed: 3,
+    visit_date_proposed: 3,
+    for_site_visit: 3,
+    revisit_requested: 3,
+    revisit_approved: 3,
+    vef_failed: 4,
+    inspection_completed: 4,
+    for_compliance_submission: 4,
+    under_review: 5,
+    needs_compliance: 5,
+    approved: 7,
+    for_payment: 7,
+    paid: 7,
+    accredited: 8,
+};
 
 interface ClinicRep {
     id: string;
@@ -43,30 +73,57 @@ const formatAnnDate = (val: any): string => {
     return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 };
 
-const SOLE_PROPRIETORSHIP_REQS = [
-    { id: 'old_dti', label: 'Old DTI Permit', desc: 'Must indicate that the clinic is established at least 5 years (2021 or older)', icon: 'history', maxSize: 5 },
-    { id: 'current_dti', label: 'Current DTI Permit', desc: 'Latest active DTI registration permit document', icon: 'description', maxSize: 5 },
-    { id: 'business_permit', label: "Current Business or Mayor's Permit", desc: 'Valid permit for the current year', icon: 'workspace_premium', maxSize: 5 },
-    { id: 'bai_cert', label: 'BAI Certificate of Registration', desc: 'Classification must be Veterinary Clinic (Surgical) or Veterinary Hospital', icon: 'verified', maxSize: 5 },
-    { id: 'bir_2303', label: 'BIR COR 2303', desc: 'Certificate of Registration from BIR', icon: 'receipt_long', maxSize: 5 },
-    { id: 'ptr_rep', label: 'Current PTR of Representative', desc: 'Professional Tax Receipt for the current year', icon: 'badge', maxSize: 5 },
-    { id: 'prc_id', label: 'Updated PRC License ID', desc: 'Valid PRC License of the representative', icon: 'credit_card', maxSize: 5 },
-    { id: 'walkthrough_video', label: 'Clinic Walkthrough Video', desc: 'Short video from facade going inside all rooms (max 1 min, up to 25MB)', icon: 'videocam', maxSize: 25 }
-];
-
-const PARTNERSHIP_CORP_REQS = [
-    { id: 'sec_articles', label: 'SEC Articles of Incorporation & By-Laws', desc: 'Representative must be at least 50% shareholder', icon: 'business', maxSize: 5 },
-    { id: 'business_permit', label: "Current Business or Mayor's Permit", desc: 'Valid permit for the current year', icon: 'workspace_premium', maxSize: 5 },
-    { id: 'bai_cert', label: 'BAI Certificate of Registration', desc: 'Classification must be Veterinary Clinic (Surgical) or Veterinary Hospital', icon: 'verified', maxSize: 5 },
-    { id: 'bir_2303', label: 'BIR COR 2303', desc: 'Certificate of Registration from BIR', icon: 'receipt_long', maxSize: 5 },
-    { id: 'ptr_rep', label: 'Current PTR of Representative', desc: 'Professional Tax Receipt for the current year', icon: 'badge', maxSize: 5 },
-    { id: 'prc_id', label: 'Updated PRC License ID', desc: 'Valid PRC License of the representative', icon: 'credit_card', maxSize: 5 },
-    { id: 'board_res', label: 'Board Resolution', desc: 'Resolution appointing the shareholder as company representative', icon: 'assignment', maxSize: 5 }
-];
-
-const TEACHING_HOSPITAL_REQS = [
-    { id: 'dean_letter', label: 'Endorsement Letter from the Dean', desc: 'Appointing the individual as representative of the university hospital', icon: 'school', maxSize: 5 }
-];
+const navStyles: Record<string, { activeBg: string; activeText: string; hoverBg: string; dot: string; iconBg: string }> = {
+    overview: {
+        activeBg: 'bg-blue-50/80 border-blue-100 text-blue-700 font-bold',
+        activeText: 'text-blue-700',
+        hoverBg: 'hover:bg-blue-50/50 hover:text-blue-600',
+        dot: 'bg-blue-500',
+        iconBg: 'bg-blue-50 border-blue-100 text-blue-500'
+    },
+    membership: {
+        activeBg: 'bg-emerald-50/80 border-emerald-100 text-emerald-700 font-bold',
+        activeText: 'text-emerald-700',
+        hoverBg: 'hover:bg-emerald-50/50 hover:text-emerald-600',
+        dot: 'bg-emerald-500',
+        iconBg: 'bg-emerald-50 border-emerald-100 text-emerald-500'
+    },
+    accreditation: {
+        activeBg: 'bg-violet-50/80 border-violet-100 text-violet-700 font-bold',
+        activeText: 'text-violet-700',
+        hoverBg: 'hover:bg-violet-50/50 hover:text-violet-600',
+        dot: 'bg-violet-500',
+        iconBg: 'bg-violet-50 border-violet-100 text-violet-500'
+    },
+    events: {
+        activeBg: 'bg-rose-50/80 border-rose-100 text-rose-700 font-bold',
+        activeText: 'text-rose-700',
+        hoverBg: 'hover:bg-rose-50/50 hover:text-rose-600',
+        dot: 'bg-rose-500',
+        iconBg: 'bg-rose-50 border-rose-100 text-rose-500'
+    },
+    inbox: {
+        activeBg: 'bg-amber-50/80 border-amber-100 text-amber-700 font-bold',
+        activeText: 'text-amber-700',
+        hoverBg: 'hover:bg-amber-50/50 hover:text-amber-600',
+        dot: 'bg-amber-500',
+        iconBg: 'bg-amber-50 border-amber-100 text-amber-500'
+    },
+    notifications: {
+        activeBg: 'bg-cyan-50/80 border-cyan-100 text-cyan-700 font-bold',
+        activeText: 'text-cyan-700',
+        hoverBg: 'hover:bg-cyan-50/50 hover:text-cyan-600',
+        dot: 'bg-cyan-500',
+        iconBg: 'bg-cyan-50 border-cyan-100 text-cyan-500'
+    },
+    profile: {
+        activeBg: 'bg-indigo-50/80 border-indigo-100 text-indigo-700 font-bold',
+        activeText: 'text-indigo-700',
+        hoverBg: 'hover:bg-indigo-50/50 hover:text-indigo-600',
+        dot: 'bg-indigo-500',
+        iconBg: 'bg-indigo-50 border-indigo-100 text-indigo-500'
+    }
+};
 
 const MemberDashboard: React.FC = () => {
     const navigate = useNavigate();
@@ -85,6 +142,8 @@ const MemberDashboard: React.FC = () => {
     const [profileEditing, setProfileEditing] = useState(false);
     const [profileSaving, setProfileSaving] = useState(false);
     const [profileForm, setProfileForm] = useState({ displayName: '', clinicName: '', phone: '', clinicAddress: '', specialization: '', representativeName: '' });
+    const [profileImageUploading, setProfileImageUploading] = useState(false);
+    const profileFileInputRef = useRef<HTMLInputElement>(null);
 
     // Clinic Representatives
     const [reps, setReps] = useState<ClinicRep[]>([]);
@@ -95,6 +154,13 @@ const MemberDashboard: React.FC = () => {
     const [repForm, setRepForm] = useState({ name: '', designation: '', prc: '', contact: '', email: '', isPrimary: false, image: '' });
     const [repDropdown, setRepDropdown] = useState<string | null>(null);
     const [accredApp, setAccredApp] = useState<AccreditationApplication | null>(null);
+
+    // Business structure is chosen freely (draft) and only persisted when the
+    // member clicks Save — previously each click wrote straight to Firestore,
+    // which immediately disabled the other options before the member could
+    // change their mind.
+    const [selectedBusinessType, setSelectedBusinessType] = useState<'' | 'sole_proprietorship' | 'partnership_corporation' | 'teaching_hospital'>('');
+    const [businessTypeSaving, setBusinessTypeSaving] = useState(false);
 
     // Customizable Card Design State
     const [cardDesign, setCardDesign] = useState<any>({
@@ -348,6 +414,10 @@ const formattedCardName = profile?.ownerName
         }
     }, [profile, user]);
 
+    useEffect(() => {
+        setSelectedBusinessType((profile?.businessType as any) || '');
+    }, [profile?.businessType]);
+
     // Load accreditation application
     useEffect(() => {
         if (!user) return;
@@ -489,6 +559,31 @@ const formattedCardName = profile?.ownerName
         }
     };
 
+    const handleUploadProfileImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file || !user) return;
+
+        setProfileImageUploading(true);
+        try {
+            const fileRef = ref(storage, `users/${user.uid}/profile_${Date.now()}`);
+            await uploadBytes(fileRef, file);
+            const downloadUrl = await getDownloadURL(fileRef);
+            await updateDoc(doc(db, 'users', user.uid), { photoUrl: downloadUrl });
+            
+            notifyAdmin({
+                type: 'member_update',
+                title: 'Member Profile Picture Updated',
+                body: `${profileForm.clinicName || memberName} updated their profile picture.`,
+                link: 'members',
+            });
+        } catch (err) {
+            console.error('Error uploading profile picture:', err);
+            alert('Failed to upload profile picture. Please try again.');
+        } finally {
+            setProfileImageUploading(false);
+        }
+    };
+
     const handleSetBusinessType = async (type: 'sole_proprietorship' | 'partnership_corporation' | 'teaching_hospital') => {
         if (!user) return;
 
@@ -503,6 +598,7 @@ const formattedCardName = profile?.ownerName
             return;
         }
 
+        setBusinessTypeSaving(true);
         try {
             await updateDoc(doc(db, 'users', user.uid), {
                 businessType: type
@@ -516,6 +612,33 @@ const formattedCardName = profile?.ownerName
             }
         } catch (err) {
             console.error('Error setting business type:', err);
+            alert('Failed to save business structure. Please try again.');
+        } finally {
+            setBusinessTypeSaving(false);
+        }
+    };
+
+    // Once a document has been uploaded for the chosen business structure, the
+    // member can no longer switch it themselves — they have to ask an admin,
+    // who can unlock the choices again. This replaces the old self-service
+    // "delete all your documents to switch" workaround.
+    const handleRequestBusinessTypeChange = async () => {
+        if (!user) return;
+        if (!window.confirm('Request PAHA to unlock your business structure selection? An admin will need to approve this before you can pick a different one.')) return;
+        try {
+            await updateDoc(doc(db, 'users', user.uid), {
+                businessTypeChangeRequested: true,
+            });
+            await notifyAdmin({
+                type: 'membership',
+                title: 'Business Structure Change Requested',
+                body: `${profile?.clinicName || profile?.displayName || user.email} requested to change their membership business structure (currently: ${profile?.businessType || 'none'}).`,
+                link: 'applications',
+            });
+            alert('Request sent. PAHA will review and unlock your business structure choices if approved.');
+        } catch (err) {
+            console.error('Error requesting business type change:', err);
+            alert('Failed to send the request. Please try again.');
         }
     };
 
@@ -569,7 +692,7 @@ const formattedCardName = profile?.ownerName
                 type: 'application',
                 title: 'Membership Document Uploaded',
                 body: `${clinicName} uploaded "${reqItem?.label || docType}" (${file.name}).`,
-                link: 'members',
+                link: 'applications',
             });
         } catch (err) {
             console.error('Error uploading document:', err);
@@ -618,6 +741,26 @@ const formattedCardName = profile?.ownerName
 
     const handleResubmitApplication = async () => {
         if (!latestRejectedApp) return;
+
+        // Re-check the same gates the button's `disabled` state uses — a guard
+        // against stale UI state, not just decoration.
+        const membershipDocs = profile?.membershipDocuments || {};
+        const memberBusinessType = profile?.businessType || '';
+        const memberActiveReqs = memberBusinessType === 'sole_proprietorship' ? SOLE_PROPRIETORSHIP_REQS
+            : memberBusinessType === 'teaching_hospital' ? TEACHING_HOSPITAL_REQS
+            : memberBusinessType === 'partnership_corporation' ? PARTNERSHIP_CORP_REQS
+            : [];
+        const docsComplete = memberActiveReqs.length > 0 && memberActiveReqs.every(r => membershipDocs[r.id]?.length > 0);
+        const paymentProofOk = !!latestRejectedApp.paymentReference && latestRejectedApp.paymentStatus !== 'unpaid';
+        if (!docsComplete) {
+            alert('Please complete the Required Documents Checklist before reapplying.');
+            return;
+        }
+        if (!paymentProofOk) {
+            alert('Please re-upload your proof of payment before reapplying.');
+            return;
+        }
+
         if (!window.confirm('Resubmit your membership application for review? Make sure you\'ve fixed the issue mentioned in the rejection reason.')) return;
         try {
             await updateDoc(doc(db, 'membership_applications', latestRejectedApp.id), {
@@ -770,26 +913,26 @@ const formattedCardName = profile?.ownerName
             <aside className={`
                 ${sidebarCollapsed ? 'w-[72px]' : 'w-[260px]'}
                 ${mobileOpen ? 'flex' : 'hidden lg:flex'}
-                fixed inset-y-0 left-0 bg-[#0A0F1A] flex-col h-screen z-40 transition-all duration-300
+                fixed inset-y-0 left-0 bg-white border-r border-slate-200/60 flex-col h-screen z-40 transition-all duration-300
             `}>
                 {/* Logo */}
-                <div className={`flex items-center h-16 border-b border-white/5 px-4 ${sidebarCollapsed ? 'justify-center' : 'gap-3 px-5'}`}>
+                <div className={`flex items-center h-16 border-b border-slate-100 px-4 ${sidebarCollapsed ? 'justify-center' : 'gap-3 px-5'}`}>
                     <div className="size-9 bg-primary rounded-xl flex items-center justify-center shrink-0 shadow-lg shadow-primary/30">
                         <span className="material-symbols-outlined text-white text-lg">pets</span>
                     </div>
                     {!sidebarCollapsed && (
                         <div className="flex-1 min-w-0">
-                            <div className="text-white font-black text-sm tracking-tight leading-none">PAHA</div>
+                            <div className="text-slate-800 font-black text-sm tracking-tight leading-none">PAHA</div>
                             <div className="text-primary text-[10px] font-black uppercase tracking-[0.2em] leading-none mt-0.5">MEMBER PORTAL</div>
                         </div>
                     )}
                     {!sidebarCollapsed && (
-                        <button onClick={() => setSidebarCollapsed(true)} className="hidden lg:flex text-white/20 hover:text-white/60 transition-colors">
+                        <button onClick={() => setSidebarCollapsed(true)} className="hidden lg:flex text-slate-400 hover:text-slate-600 transition-colors">
                             <span className="material-symbols-outlined text-lg">menu_open</span>
                         </button>
                     )}
                     {sidebarCollapsed && (
-                        <button onClick={() => setSidebarCollapsed(false)} className="hidden lg:flex text-white/20 hover:text-white/60 transition-colors absolute right-2 top-4">
+                        <button onClick={() => setSidebarCollapsed(false)} className="hidden lg:flex text-slate-400 hover:text-slate-600 transition-colors absolute right-2 top-4">
                             <span className="material-symbols-outlined text-lg">menu</span>
                         </button>
                     )}
@@ -799,54 +942,67 @@ const formattedCardName = profile?.ownerName
                 <nav className="flex-1 py-4 overflow-y-auto scrollbar-hide">
                     {!sidebarCollapsed && (
                         <div className="px-4 mb-3">
-                            <span className="text-[9px] font-black text-white/20 uppercase tracking-[0.3em]">Main Menu</span>
+                            <span className="text-[9px] font-black text-slate-400 uppercase tracking-[0.3em]">Main Menu</span>
                         </div>
                     )}
                     <div className="px-3 space-y-0.5">
-                        {NAV.map(item => (
-                            <button
-                                key={item.id}
-                                onClick={() => { if (item.disabled) return; setActiveTab(item.id); setMobileOpen(false); }}
-                                disabled={item.disabled}
-                                title={item.disabled ? 'Available once your membership is approved' : (sidebarCollapsed ? item.label : undefined)}
-                                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold transition-all group relative
-                                    ${item.disabled
-                                        ? 'text-white/15 cursor-not-allowed'
-                                        : activeTab === item.id
-                                            ? 'bg-primary text-white shadow-lg shadow-primary/25'
-                                            : 'text-white/40 hover:text-white hover:bg-white/5'
-                                    }
-                                    ${sidebarCollapsed ? 'justify-center' : ''}
-                                `}
-                            >
-                                <span className={`material-symbols-outlined text-xl shrink-0 transition-transform duration-200 ${activeTab !== item.id && !item.disabled ? 'group-hover:scale-110' : ''}`}>
-                                    {item.disabled ? 'lock' : item.icon}
-                                </span>
-                                {!sidebarCollapsed && <span className="truncate">{item.label}</span>}
-                                {!sidebarCollapsed && !!item.badge && !item.disabled && (
-                                    <span className={`ml-auto text-[10px] font-black px-2 py-0.5 rounded-full min-w-[20px] text-center
-                                        ${activeTab === item.id ? 'bg-white/20 text-white' : 'bg-primary/20 text-primary'}
-                                    `}>{item.badge}</span>
-                                )}
-                                {sidebarCollapsed && !!item.badge && !item.disabled && (
-                                    <span className="absolute top-1 right-1 size-2 rounded-full bg-primary"></span>
-                                )}
-                            </button>
-                        ))}
+                        {NAV.map(item => {
+                            const isSelected = activeTab === item.id;
+                            const style = navStyles[item.id] || navStyles.overview;
+                            return (
+                                <button
+                                    key={item.id}
+                                    onClick={() => { if (item.disabled) return; setActiveTab(item.id); setMobileOpen(false); }}
+                                    disabled={item.disabled}
+                                    title={item.disabled ? 'Available once your membership is approved' : (sidebarCollapsed ? item.label : undefined)}
+                                    className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-semibold transition-all group relative border border-transparent
+                                        ${item.disabled
+                                            ? 'opacity-50 cursor-not-allowed text-slate-300'
+                                            : isSelected
+                                                ? style.activeBg
+                                                : `text-slate-600 ${style.hoverBg}`
+                                        }
+                                        ${sidebarCollapsed ? 'justify-center' : ''}
+                                    `}
+                                >
+                                    <div className={`w-8 h-8 rounded-xl border flex items-center justify-center transition-colors shrink-0
+                                        ${item.disabled
+                                            ? 'bg-slate-50 border-slate-100 text-slate-300'
+                                            : isSelected
+                                                ? style.iconBg
+                                                : 'bg-slate-50 border-slate-100 text-slate-400 group-hover:bg-slate-100 group-hover:text-slate-600 group-hover:border-slate-200'
+                                        }
+                                    `}>
+                                        <span className="material-symbols-outlined text-[18px]">
+                                            {item.disabled ? 'lock' : item.icon}
+                                        </span>
+                                    </div>
+                                    {!sidebarCollapsed && <span className="truncate">{item.label}</span>}
+                                    {!sidebarCollapsed && !!item.badge && !item.disabled && (
+                                        <span className={`ml-auto text-[10px] font-black px-2 py-0.5 rounded-full min-w-[20px] text-center
+                                            ${isSelected ? 'bg-primary text-white' : 'bg-slate-100 text-slate-600'}
+                                        `}>{item.badge}</span>
+                                    )}
+                                    {sidebarCollapsed && !!item.badge && !item.disabled && (
+                                        <span className={`absolute top-1.5 right-1.5 size-2 rounded-full ${style.dot}`}></span>
+                                    )}
+                                </button>
+                            );
+                        })}
                     </div>
 
                 </nav>
 
                 {/* Profile + Logout */}
-                <div className="border-t border-white/5">
+                <div className="border-t border-slate-100">
                     {!sidebarCollapsed && (
                         <div className="px-4 py-4 flex items-center gap-3">
-                            <div className="size-9 rounded-xl bg-primary/20 border border-primary/30 flex items-center justify-center text-primary font-black text-sm shrink-0">
+                            <div className="size-9 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary font-black text-sm shrink-0">
                                 {memberName.charAt(0).toUpperCase()}
                             </div>
                             <div className="flex-1 min-w-0">
-                                <div className="text-white font-bold text-sm truncate leading-tight">{memberName}</div>
-                                <div className="text-white/30 text-[10px] uppercase tracking-wider truncate">{memberEmail}</div>
+                                <div className="text-slate-800 font-bold text-sm truncate leading-tight">{memberName}</div>
+                                <div className="text-slate-400 text-[10px] uppercase tracking-wider truncate">{memberEmail}</div>
                             </div>
                         </div>
                     )}
@@ -854,9 +1010,11 @@ const formattedCardName = profile?.ownerName
                         <button
                             onClick={handleLogout}
                             title="Sign Out"
-                            className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-red-500/60 hover:text-red-400 hover:bg-red-500/10 transition-all font-semibold text-sm group ${sidebarCollapsed ? 'justify-center w-full' : 'w-full'}`}
+                            className={`flex items-center gap-3 px-3 py-2 rounded-xl text-red-500 hover:bg-red-50 transition-all font-semibold text-sm group ${sidebarCollapsed ? 'justify-center w-full' : 'w-full'}`}
                         >
-                            <span className="material-symbols-outlined text-xl shrink-0 group-hover:scale-110 transition-transform duration-200">logout</span>
+                            <div className="w-8 h-8 rounded-xl bg-red-50 border border-red-100/50 flex items-center justify-center text-red-500 group-hover:bg-red-100 shrink-0 transition-colors">
+                                <span className="material-symbols-outlined text-xl shrink-0 group-hover:scale-110 transition-transform duration-200">logout</span>
+                            </div>
                             {!sidebarCollapsed && 'System Logout'}
                         </button>
                     </div>
@@ -1273,7 +1431,7 @@ const formattedCardName = profile?.ownerName
                                             <div className="text-[9px] font-black text-white/30 uppercase tracking-[0.3em] mb-4">System Monitor</div>
                                             {[
                                                 { label: 'Membership Status', value: 'Active', pct: 100, color: 'bg-primary' },
-                                                { label: 'Accreditation', value: accredApp ? (WORKFLOW_STATUS_LABELS[accredApp.status] || accredApp.status) : 'Not Started', pct: accredApp ? (() => { const ord = ['intent_submitted','self_assessment_completed','for_site_visit','inspection_completed','under_review','approved','for_payment','paid','accredited']; const i = ord.indexOf(accredApp.status); return i >= 0 ? Math.round(((i+1)/ord.length)*100) : 0; })() : 0, color: accredApp?.status === 'accredited' ? 'bg-emerald-500' : accredApp?.status === 'rejected' ? 'bg-red-500' : 'bg-amber-500' },
+                                                { label: 'Accreditation', value: accredApp ? (WORKFLOW_STATUS_LABELS[accredApp.status] || accredApp.status) : 'Not Started', pct: accredApp ? Math.round(((ACCRED_STAGE_ORDER[accredApp.status] ?? 1) / 8) * 100) : 0, color: accredApp?.status === 'accredited' ? 'bg-emerald-500' : accredApp?.status === 'rejected' ? 'bg-red-500' : 'bg-amber-500' },
                                                 { label: 'Events Registered', value: `${myRegistrations.length} / ${upcomingEvents.length || '—'}`, pct: upcomingEvents.length ? Math.round((myRegistrations.length / upcomingEvents.length) * 100) : 0, color: 'bg-teal-500' },
                                             ].map((item, i) => (
                                                 <div key={i} className="mb-4 last:mb-0">
@@ -1306,7 +1464,28 @@ const formattedCardName = profile?.ownerName
                         {/* ══════════════════════════════════════════════
                              TAB: MEMBERSHIP
                         ══════════════════════════════════════════════ */}
-                        {activeTab === 'membership' && (
+                        {activeTab === 'membership' && (() => {
+                            // Required Documents Checklist must be 100% complete before the
+                            // member is allowed to (re)apply — an admin rejection for a
+                            // documents issue wipes the flagged files, so this naturally
+                            // re-locks the button until they're re-uploaded.
+                            const membershipDocs = profile?.membershipDocuments || {};
+                            const memberBusinessType = profile?.businessType || '';
+                            const memberActiveReqs = memberBusinessType === 'sole_proprietorship' ? SOLE_PROPRIETORSHIP_REQS
+                                : memberBusinessType === 'teaching_hospital' ? TEACHING_HOSPITAL_REQS
+                                : memberBusinessType === 'partnership_corporation' ? PARTNERSHIP_CORP_REQS
+                                : [];
+                            const docsComplete = memberActiveReqs.length > 0 && memberActiveReqs.every(r => membershipDocs[r.id]?.length > 0);
+
+                            // If the admin rejected for a payment issue, the proof of payment
+                            // was wiped (paymentStatus reset to 'unpaid', paymentReference
+                            // cleared) — the member must re-submit proof before they can
+                            // reapply, same gate as the documents checklist above.
+                            const paymentProofOk = !latestRejectedApp
+                                || (!!latestRejectedApp.paymentReference && latestRejectedApp.paymentStatus !== 'unpaid');
+                            const canReapply = docsComplete && paymentProofOk;
+
+                            return (
                             <div className="space-y-6">
                                 {/* Rejected Application Banner — lets the member fix the issue and resend */}
                                 {latestRejectedApp && !isApprovedMember && (
@@ -1323,14 +1502,33 @@ const formattedCardName = profile?.ownerName
                                         <p className="text-[11px] text-slate-500 dark:text-slate-400 pl-9">
                                             Fix the issue above — e.g. re-upload a corrected document below — then resubmit your application for another review.
                                         </p>
-                                        <div className="pl-9">
-                                            <button
-                                                onClick={handleResubmitApplication}
-                                                className="px-5 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold text-xs uppercase tracking-wider transition-all flex items-center gap-2"
-                                            >
-                                                <span className="material-symbols-outlined text-base">refresh</span>
-                                                Reapply Application
-                                            </button>
+                                        <div className="pl-9 space-y-1.5">
+                                            <div className="flex flex-wrap items-center gap-2">
+                                                <button
+                                                    onClick={handleResubmitApplication}
+                                                    disabled={!canReapply}
+                                                    title={!canReapply ? 'Complete the Required Documents Checklist and re-upload your proof of payment before reapplying.' : undefined}
+                                                    className="px-5 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold text-xs uppercase tracking-wider transition-all flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-red-600"
+                                                >
+                                                    <span className="material-symbols-outlined text-base">refresh</span>
+                                                    Reapply Application
+                                                </button>
+                                                {!paymentProofOk && (
+                                                    <button
+                                                        onClick={() => navigate('/membership/payment')}
+                                                        className="px-5 py-2.5 bg-white dark:bg-white/5 border border-red-300 dark:border-red-500/30 text-red-600 dark:text-red-400 rounded-xl font-bold text-xs uppercase tracking-wider transition-all flex items-center gap-2 hover:bg-red-50 dark:hover:bg-red-500/10"
+                                                    >
+                                                        <span className="material-symbols-outlined text-base">upload</span>
+                                                        Re-upload Payment Proof
+                                                    </button>
+                                                )}
+                                            </div>
+                                            {!docsComplete && (
+                                                <p className="text-[10px] text-red-500 font-semibold">Complete the Required Documents Checklist below to unlock this button.</p>
+                                            )}
+                                            {!paymentProofOk && (
+                                                <p className="text-[10px] text-red-500 font-semibold">Your proof of payment was flagged and removed — re-upload it before reapplying.</p>
+                                            )}
                                         </div>
                                     </div>
                                 )}
@@ -1372,10 +1570,27 @@ const formattedCardName = profile?.ownerName
                                             <div className="space-y-3">
                                                 <label className="text-[10px] font-black uppercase tracking-wider text-slate-400">Select Business Structure *</label>
                                                 {uploadedCount > 0 && (
-                                                    <p className="text-[10px] text-amber-600 dark:text-amber-400 font-semibold flex items-center gap-1">
-                                                        <span className="material-symbols-outlined text-xs">lock</span>
-                                                        A document has been uploaded for this structure, so the other options are locked. Delete all uploaded documents to switch.
-                                                    </p>
+                                                    <div className="flex flex-wrap items-center justify-between gap-2">
+                                                        <p className="text-[10px] text-amber-600 dark:text-amber-400 font-semibold flex items-center gap-1">
+                                                            <span className="material-symbols-outlined text-xs">lock</span>
+                                                            Business structure locked once documents are uploaded — the other options are unavailable.
+                                                        </p>
+                                                        {(profile as any)?.businessTypeChangeRequested ? (
+                                                            <span className="text-[10px] font-black uppercase tracking-wider text-amber-600 dark:text-amber-400 flex items-center gap-1">
+                                                                <span className="material-symbols-outlined text-xs animate-pulse">hourglass_empty</span>
+                                                                Change request pending admin approval
+                                                            </span>
+                                                        ) : (
+                                                            <button
+                                                                type="button"
+                                                                onClick={handleRequestBusinessTypeChange}
+                                                                className="text-[10px] font-black uppercase tracking-wider text-primary hover:underline flex items-center gap-1"
+                                                            >
+                                                                <span className="material-symbols-outlined text-xs">sync_alt</span>
+                                                                Request Business Structure Change
+                                                            </button>
+                                                        )}
+                                                    </div>
                                                 )}
                                                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                                                     {[
@@ -1383,14 +1598,14 @@ const formattedCardName = profile?.ownerName
                                                         { id: 'partnership_corporation', label: 'Partnership / Corporation', icon: 'corporate_fare', desc: 'Co-owned or incorporated business' },
                                                         { id: 'teaching_hospital', label: 'Veterinary Teaching Hospital', icon: 'school', desc: 'University-affiliated teaching hospital' }
                                                     ].map(type => {
-                                                        const isActive = profile?.businessType === type.id;
-                                                        const isLocked = businessType !== '' && !isActive;
+                                                        const isActive = selectedBusinessType === type.id;
+                                                        const isLocked = uploadedCount > 0 && type.id !== businessType;
                                                         return (
                                                             <button
                                                                 key={type.id}
-                                                                onClick={() => !isLocked && handleSetBusinessType(type.id as any)}
+                                                                onClick={() => !isLocked && setSelectedBusinessType(type.id as any)}
                                                                 disabled={isLocked}
-                                                                title={isLocked ? 'Business structure already selected. Delete all uploaded documents to switch.' : undefined}
+                                                                title={isLocked ? 'Documents already uploaded for your current business structure. Request a change to switch.' : undefined}
                                                                 className={`relative p-4 rounded-xl border text-left transition-all flex items-start gap-3.5 ${
                                                                     isActive
                                                                         ? 'border-primary bg-primary/[0.03] shadow-md shadow-primary/5 dark:bg-primary/5'
@@ -1415,6 +1630,19 @@ const formattedCardName = profile?.ownerName
                                                         );
                                                     })}
                                                 </div>
+                                                {selectedBusinessType !== '' && selectedBusinessType !== businessType && (
+                                                    <div className="flex items-center gap-3">
+                                                        <button
+                                                            type="button"
+                                                            disabled={businessTypeSaving}
+                                                            onClick={() => handleSetBusinessType(selectedBusinessType as any)}
+                                                            className="px-4 py-2 rounded-xl bg-primary text-white font-black text-[10px] uppercase tracking-widest hover:bg-primary/90 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                                                        >
+                                                            {businessTypeSaving ? 'Saving…' : 'Save Business Structure'}
+                                                        </button>
+                                                        <span className="text-[10px] text-slate-400">You can keep changing your selection until you save.</span>
+                                                    </div>
+                                                )}
                                             </div>
 
                                             {/* Requirements Checklist & Uploads */}
@@ -1557,7 +1785,7 @@ const formattedCardName = profile?.ownerName
                                                         <div className="font-bold text-xs leading-none">{expiryDateShortStr}</div>
                                                     </div>
                                                     <div className="px-2 py-0.5 rounded bg-white/20 text-[8px] font-black uppercase tracking-wider">
-                                                        Regular
+                                                        {profile?.ownerName || profile?.representativeName || '—'}
                                                     </div>
                                                 </div>
                                             </div>
@@ -2005,7 +2233,8 @@ const formattedCardName = profile?.ownerName
                                     </div>
                                 )}
                             </div>
-                        )}
+                            );
+                        })()}
 
                         {/* ══════════════════════════════════════════════
                              TAB: ACCREDITATION PIPELINE
@@ -2244,17 +2473,44 @@ const formattedCardName = profile?.ownerName
 
                                 {/* Avatar card */}
                                 <div className="bg-white dark:bg-[#0F172A] rounded-2xl border border-slate-200 dark:border-white/5 p-6 shadow-sm flex items-center gap-5">
-                                    {profile?.photoUrl ? (
-                                        <img 
-                                            src={profile.photoUrl} 
-                                            className="size-20 rounded-2xl object-cover shadow-xl shadow-primary/30 shrink-0 border border-slate-200 dark:border-white/10" 
-                                            alt={memberName} 
-                                        />
-                                    ) : (
-                                        <div className="size-20 rounded-2xl bg-primary flex items-center justify-center text-white font-black text-3xl shadow-xl shadow-primary/30 shrink-0">
-                                        {memberName.charAt(0).toUpperCase()}
+                                    <div className="relative group/avatar cursor-pointer size-20 shrink-0 rounded-2xl overflow-hidden shadow-xl shadow-primary/30 border border-slate-200 dark:border-white/10"
+                                         onClick={() => profileFileInputRef.current?.click()}
+                                         title="Change profile picture"
+                                    >
+                                        {profile?.photoUrl ? (
+                                            <img 
+                                                src={profile.photoUrl} 
+                                                className="size-full object-cover" 
+                                                alt={memberName} 
+                                            />
+                                        ) : (
+                                            <div className="size-full bg-primary flex items-center justify-center text-white font-black text-3xl">
+                                                {memberName.charAt(0).toUpperCase()}
+                                            </div>
+                                        )}
+                                        
+                                        {/* Hover Overlay */}
+                                        <div className="absolute inset-0 bg-black/50 opacity-0 group-hover/avatar:opacity-100 flex flex-col items-center justify-center text-white transition-opacity duration-200">
+                                            <span className="material-symbols-outlined text-xl">photo_camera</span>
+                                            <span className="text-[9px] font-black uppercase tracking-wider mt-0.5">Upload</span>
+                                        </div>
+
+                                        {/* Loading state */}
+                                        {profileImageUploading && (
+                                            <div className="absolute inset-0 bg-black/60 flex items-center justify-center text-white">
+                                                <span className="animate-spin border-2 border-white/30 border-t-white rounded-full size-5" />
+                                            </div>
+                                        )}
                                     </div>
-                                    )}
+                                    
+                                    <input 
+                                        type="file" 
+                                        ref={profileFileInputRef} 
+                                        onChange={handleUploadProfileImage} 
+                                        accept="image/*" 
+                                        className="hidden" 
+                                    />
+                                    
                                     <div>
                                         <div className="text-xl font-black text-slate-900 dark:text-white">{memberName}</div>
                                         <div className="text-sm text-slate-500 dark:text-slate-400">{memberEmail}</div>
@@ -2302,38 +2558,6 @@ const formattedCardName = profile?.ownerName
                                     </div>
                                 </div>
 
-                                {/* Read-only account info */}
-                                <div className="bg-white dark:bg-[#0F172A] rounded-2xl border border-slate-200 dark:border-white/5 shadow-sm overflow-hidden">
-                                    <div className="px-6 py-4 border-b border-slate-100 dark:border-white/5">
-                                        <h3 className="font-black text-slate-900 dark:text-white text-sm uppercase tracking-tight">Account Info</h3>
-                                    </div>
-                                    <div className="divide-y divide-slate-50 dark:divide-white/5">
-                                        {[
-                                            { label: 'Email Address', value: memberEmail, icon: 'mail' },
-                                            { label: 'Member Role', value: profile?.role || 'Regular Member', icon: 'badge' },
-                                            { label: 'Account ID', value: user?.uid?.slice(0, 20) + '...', icon: 'fingerprint' },
-                                        ].map((item, i) => (
-                                            <div key={i} className="flex items-center gap-4 px-6 py-4">
-                                                <div className="size-9 rounded-xl bg-slate-100 dark:bg-white/5 flex items-center justify-center shrink-0">
-                                                    <span className="material-symbols-outlined text-[16px] text-slate-400 dark:text-white/30">{item.icon}</span>
-                                                </div>
-                                                <div className="flex-1 min-w-0">
-                                                    <div className="text-[9px] font-black text-slate-400 dark:text-white/30 uppercase tracking-wider">{item.label}</div>
-                                                    <div className="text-sm font-bold text-slate-800 dark:text-white truncate">{item.value}</div>
-                                                </div>
-                                            </div>
-                                        ))}
-                                    </div>
-                                </div>
-
-                                {/* Sign out */}
-                                <div className="bg-red-50 dark:bg-red-900/10 border border-red-200 dark:border-red-500/20 rounded-2xl p-5">
-                                    <div className="font-black text-red-700 dark:text-red-400 text-sm uppercase tracking-tight mb-2">Sign Out</div>
-                                    <p className="text-xs text-red-600 dark:text-red-500 mb-4">End your current session and return to the login screen.</p>
-                                    <button onClick={handleLogout} className="px-5 py-2.5 bg-red-500 text-white rounded-xl font-black text-xs uppercase tracking-widest flex items-center gap-2 hover:bg-red-600 transition-all shadow-lg shadow-red-500/25">
-                                        <span className="material-symbols-outlined text-base">logout</span>System Logout
-                                    </button>
-                                </div>
                             </div>{/* end left col */}
 
                             {/* ── RIGHT COLUMN — Uploaded Documents ── */}
@@ -2460,6 +2684,30 @@ const formattedCardName = profile?.ownerName
                                                 <p className="text-xs text-slate-300 dark:text-white/20 mt-1">Documents will appear here as you progress through onboarding & accreditation.</p>
                                             </div>
                                         )}
+                                    </div>
+                                </div>
+
+                                {/* Read-only account info — placed below Uploaded Documents */}
+                                <div className="bg-white dark:bg-[#0F172A] rounded-2xl border border-slate-200 dark:border-white/5 shadow-sm overflow-hidden">
+                                    <div className="px-6 py-4 border-b border-slate-100 dark:border-white/5">
+                                        <h3 className="font-black text-slate-900 dark:text-white text-sm uppercase tracking-tight">Account Info</h3>
+                                    </div>
+                                    <div className="divide-y divide-slate-50 dark:divide-white/5">
+                                        {[
+                                            { label: 'Email Address', value: memberEmail, icon: 'mail' },
+                                            { label: 'Member Role', value: profile?.role || 'Regular Member', icon: 'badge' },
+                                            { label: 'Account ID', value: user?.uid?.slice(0, 20) + '...', icon: 'fingerprint' },
+                                        ].map((item, i) => (
+                                            <div key={i} className="flex items-center gap-4 px-6 py-4">
+                                                <div className="size-9 rounded-xl bg-slate-100 dark:bg-white/5 flex items-center justify-center shrink-0">
+                                                    <span className="material-symbols-outlined text-[16px] text-slate-400 dark:text-white/30">{item.icon}</span>
+                                                </div>
+                                                <div className="flex-1 min-w-0">
+                                                    <div className="text-[9px] font-black text-slate-400 dark:text-white/30 uppercase tracking-wider">{item.label}</div>
+                                                    <div className="text-sm font-bold text-slate-800 dark:text-white truncate">{item.value}</div>
+                                                </div>
+                                            </div>
+                                        ))}
                                     </div>
                                 </div>
                             </div>

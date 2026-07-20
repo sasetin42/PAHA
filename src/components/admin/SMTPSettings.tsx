@@ -149,9 +149,9 @@ const SMTPSettings: React.FC = () => {
                     <span className="material-symbols-outlined">
                         {toast.type === 'success' ? 'check_circle' : 'error'}
                     </span>
-        {toast.message}
-        </div>
-      )}
+                    {toast.message}
+                </div>
+            )}
 
             {/* Header Cards & Connection Status */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

@@ -368,6 +368,17 @@ const MembersManager: React.FC<MembersManagerProps> = ({ filter = 'all', canEdit
         }
     };
 
+    const getMemberImage = (mProfile: MemberProfile) => {
+        if (mProfile.image && !mProfile.image.includes('placeholder')) return mProfile.image;
+        const matchedApp = membershipApps.find(app => app.email?.toLowerCase() === mProfile.email?.toLowerCase());
+        if (matchedApp?.photoUrl && !matchedApp.photoUrl.includes('placeholder')) return matchedApp.photoUrl;
+        const uid = (mProfile as any).uid || matchedApp?.uid;
+        if (uid && usersMap[uid]?.photoUrl && !usersMap[uid].photoUrl.includes('placeholder')) {
+            return usersMap[uid].photoUrl;
+        }
+        return null;
+    };
+
     // Filter and Sort Logic
     const filteredMembers = useMemo(() => {
         let result = [...members];
@@ -399,13 +410,22 @@ const MembersManager: React.FC<MembersManagerProps> = ({ filter = 'all', canEdit
 
         // Sorting
         result.sort((a, b) => {
-            const valA = a[sortBy];
-            const valB = b[sortBy];
+            let valA = a[sortBy];
+            let valB = b[sortBy];
             
             // Put undefined/null/empty values at the bottom
             if (valA === undefined || valA === null || valA === '') return 1;
             if (valB === undefined || valB === null || valB === '') return -1;
             
+            // If sorting by date (joinedAt or createdAt), handle dates properly
+            if (sortBy === 'joinedAt' || sortBy === 'createdAt' as any) {
+                const dateA = new Date(valA && typeof valA === 'object' && 'seconds' in valA ? (valA as any).seconds * 1000 : (valA as any));
+                const dateB = new Date(valB && typeof valB === 'object' && 'seconds' in valB ? (valB as any).seconds * 1000 : (valB as any));
+                const timeA = isNaN(dateA.getTime()) ? 0 : dateA.getTime();
+                const timeB = isNaN(dateB.getTime()) ? 0 : dateB.getTime();
+                return sortOrder === 'asc' ? timeA - timeB : timeB - timeA;
+            }
+
             const strA = valA.toString().toLowerCase();
             const strB = valB.toString().toLowerCase();
             
@@ -430,7 +450,7 @@ const MembersManager: React.FC<MembersManagerProps> = ({ filter = 'all', canEdit
     const professionalCount = members.filter(m => m.type === 'Professional Member').length;
 
 return (
-        <div className="relative">
+        <div className="relative space-y-6">
             <div className="space-y-6">
                 <div>
                     <h2 className="text-2xl font-bold text-slate-800 dark:text-white flex items-center gap-2">
@@ -622,8 +642,8 @@ return (
                                             <div className="flex items-center gap-3">
                                                 <div className="relative shrink-0">
                                                     <div className="w-10 h-10 rounded-[8px] bg-slate-100 dark:bg-slate-900 overflow-hidden border border-slate-200 dark:border-white/10 shadow-sm flex items-center justify-center">
-                                                        {member.image ? (
-                                                            <img src={member.image} alt="" className="w-full h-full object-cover" />
+                                                        {getMemberImage(member) ? (
+                                                            <img src={getMemberImage(member)!} alt="" className="w-full h-full object-cover" />
                                                         ) : (
                                                             <span className="material-symbols-outlined text-slate-400 text-lg">person</span>
                                                         )}
@@ -635,12 +655,12 @@ return (
                                                     )}
                                                 </div>
                                                 <div>
-                                                    <h4 className="font-bold text-slate-900 dark:text-white text-sm leading-tight" title={member.name}>
-                                                        {member.name.length > 20 ? `${member.name.substring(0, 20)}...` : member.name}
+                                                    <h4 className="font-bold text-slate-900 dark:text-white text-sm leading-tight capitalize" title={member.name}>
+                                                        {member.name ? (member.name.length > 20 ? `${member.name.substring(0, 20).toLowerCase()}...` : member.name.toLowerCase()) : ''}
                                                     </h4>
-                                                    <p className="text-[10px] text-slate-400 dark:text-slate-500 font-semibold mt-0.5 uppercase tracking-wide flex items-center gap-1" title={member.headVeterinarian || 'No Head Vet Specified'}>
+                                                    <p className="text-[10px] text-slate-400 dark:text-slate-500 font-semibold mt-0.5 capitalize tracking-wide flex items-center gap-1" title={member.headVeterinarian || 'No Head Vet Specified'}>
                                                         <span className="material-symbols-outlined text-[12px]">medical_services</span>
-                                                        {member.headVeterinarian ? (member.headVeterinarian.length > 20 ? `${member.headVeterinarian.substring(0, 20)}...` : member.headVeterinarian) : 'No Head Vet Specified'}
+                                                        {member.headVeterinarian ? (member.headVeterinarian.length > 20 ? `${member.headVeterinarian.substring(0, 20).toLowerCase()}...` : member.headVeterinarian.toLowerCase()) : 'No Head Vet Specified'}
                                                     </p>
                                                 </div>
                                             </div>
@@ -1760,21 +1780,35 @@ return (
                                                                         {MEMBERSHIP_DOC_LABELS[docId] || docId}
                                                                     </p>
                                                                     <div className="space-y-1.5">
-                                                                        {files.map((file: any, idx: number) => (
-                                                                            <button
-                                                                                key={idx}
-                                                                                onClick={() => setViewerFile({ url: file.url, name: file.name })}
-                                                                                className="w-full flex items-center gap-2.5 p-2 bg-white dark:bg-slate-800 rounded-lg border border-slate-100 dark:border-white/5 hover:border-primary transition-colors group text-left"
-                                                                            >
-                                                                                <span className="material-symbols-outlined text-primary text-sm">
-                                                                                    {docId === 'walkthrough_video' ? 'movie' : 'description'}
-                                                                                </span>
-                                                                                <span className="flex-1 min-w-0 text-[11px] font-semibold text-slate-700 dark:text-slate-200 truncate group-hover:text-primary transition-colors">
-                                                                                    {file.name}
-                                                                                </span>
-                                                                                <span className="material-symbols-outlined text-slate-455 group-hover:text-primary text-xs">visibility</span>
-                                                                            </button>
-                                                                        ))}
+                                                                        {files.map((file: any, idx: number) => {
+                                                                            const isVideo = docId === 'walkthrough_video';
+                                                                            return (
+                                                                                <div key={idx} className="space-y-2">
+                                                                                    <button
+                                                                                        type="button"
+                                                                                        onClick={() => setViewerFile({ url: file.url, name: file.name })}
+                                                                                        className="w-full flex items-center gap-2.5 p-2 bg-white dark:bg-slate-800 rounded-lg border border-slate-100 dark:border-white/5 hover:border-primary transition-colors group text-left"
+                                                                                    >
+                                                                                        <span className="material-symbols-outlined text-primary text-sm">
+                                                                                            {isVideo ? 'movie' : 'description'}
+                                                                                        </span>
+                                                                                        <span className="flex-1 min-w-0 text-[11px] font-semibold text-slate-700 dark:text-slate-200 truncate group-hover:text-primary transition-colors">
+                                                                                            {file.name}
+                                                                                        </span>
+                                                                                        <span className="material-symbols-outlined text-slate-455 group-hover:text-primary text-xs">visibility</span>
+                                                                                    </button>
+                                                                                    {isVideo && (
+                                                                                        <div className="mt-2 bg-slate-955 dark:bg-slate-900 rounded-xl overflow-hidden shadow-inner border border-slate-200/50 dark:border-white/5">
+                                                                                            <video 
+                                                                                                src={file.url} 
+                                                                                                controls 
+                                                                                                className="w-full max-h-56 object-contain bg-black"
+                                                                                            />
+                                                                                        </div>
+                                                                                    )}
+                                                                                </div>
+                                                                            );
+                                                                        })}
                                                                     </div>
                                                                 </div>
                                                             );

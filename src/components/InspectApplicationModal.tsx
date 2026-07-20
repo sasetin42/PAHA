@@ -55,6 +55,13 @@ const InspectApplicationModal: React.FC<Props> = ({ appId, adminRole = 'editor',
     const [viewerFile, setViewerFile] = useState<ViewerFile | null>(null);
     const [showDeclineInput, setShowDeclineInput] = useState(false);
     const [declineReason, setDeclineReason] = useState('');
+    const [isEditingDate, setIsEditingDate] = useState(false);
+    const [showProposeDate, setShowProposeDate] = useState(false);
+    const [proposeDate, setProposeDate] = useState('');
+    // After a member flags they can't make an admin-proposed date, the admin
+    // coordinates a new one directly with them via chat, then types it here —
+    // this sets the visit date immediately, no member re-acceptance needed.
+    const [resendDate, setResendDate] = useState('');
 
     // Live-sync the application document
     useEffect(() => {
@@ -137,7 +144,29 @@ const InspectApplicationModal: React.FC<Props> = ({ appId, adminRole = 'editor',
     }
 
     const saData = app.selfAssessmentData;
-    const hasVisited = app.status === 'inspection_completed' || !!app.visitData?.completedAt || (app.visitingEvaluationForms?.length ?? 0) > 0;
+    // A site visit can never be scheduled for today — earliest proposable date is tomorrow.
+    const minVisitDateStr = (() => {
+        const d = new Date();
+        d.setDate(d.getDate() + 1);
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    })();
+    // Per-round signal — NOT based on visitingEvaluationForms.length, since that
+    // array keeps every past (e.g. failed) VEF and would stay truthy forever,
+    // wrongly marking a freshly-scheduled revisit as "already visited". Kept
+    // "raw" (not round-scoped) because it's also used to show the PREVIOUS
+    // round's completed-visit/VEF history, which should stay visible for
+    // context while a revisit is being requested.
+    const hasVisited = app.status === 'inspection_completed' || !!app.visitData?.completedAt;
+    // Round-scoped: a pending revisit request/proposal must NOT inherit
+    // "visited" from the previous (failed) round — that would lock the new 3
+    // date options and hide date-picking actions before the admin ever picks one.
+    const roundVisited = hasVisited && app.status !== 'revisit_requested' && app.status !== 'visit_date_proposed';
+    const revisitDates = app.visitData?.preferredRevisitDates;
+    const isRevisit = !!revisitDates?.length;
+    // A date is "committed" once it's been scheduled/approved (or the visit
+    // already happened) — at that point the other two options lock, with an
+    // Edit button to reopen the picker if the schedule needs to change.
+    const isCommitted = app.status === 'for_site_visit' || app.status === 'revisit_approved' || roundVisited;
 
     // Step 1 of the decision: approving the LOI only unlocks Self-Assessment for
     // the applicant — it must NOT jump straight to scheduling a site visit.
@@ -215,6 +244,7 @@ const InspectApplicationModal: React.FC<Props> = ({ appId, adminRole = 'editor',
                 read: false, createdAt: serverTimestamp(),
             });
             showToast('Site visit scheduled!', 'success');
+            setIsEditingDate(false);
         } catch { showToast('Failed to schedule visit.', 'error'); }
         finally { setAccredActionLoading(false); }
     };
@@ -224,10 +254,17 @@ const InspectApplicationModal: React.FC<Props> = ({ appId, adminRole = 'editor',
         if (!selectedRevisitDate) { showToast('Please select a date first.', 'error'); return; }
         setAccredActionLoading(true);
         try {
+            // Keep preferredRevisitDates — wiping it here made the panel fall
+            // back to the ORIGINAL loiData dates (and lose which of the 3
+            // revisit options was actually chosen) the moment the second
+            // visit's VEF was submitted. Drop completedAt explicitly (not just
+            // `undefined`, which Firestore rejects) so this fresh round isn't
+            // marked visited before it's actually happened.
+            const { completedAt, ...restVisitData } = app.visitData || {};
             await updateDoc(doc(db, 'accreditation_applications', app.id), {
-                status: 'for_site_visit',
+                status: 'revisit_approved',
                 stage: 3,
-                visitData: { scheduledDate: selectedRevisitDate, scheduledTime: '', inspectorName: '', notes: '', confirmedAt: new Date().toISOString() },
+                visitData: { ...restVisitData, scheduledDate: selectedRevisitDate, scheduledTime: '', inspectorName: '', notes: '', confirmedAt: new Date().toISOString() },
                 updatedAt: serverTimestamp(),
             });
             await addDoc(collection(db, 'member_notifications'), {
@@ -237,7 +274,68 @@ const InspectApplicationModal: React.FC<Props> = ({ appId, adminRole = 'editor',
                 read: false, createdAt: serverTimestamp(),
             });
             showToast('Revisit approved. Member notified.', 'success');
+            setIsEditingDate(false);
         } catch { showToast('Failed to approve revisit.', 'error'); }
+        finally { setAccredActionLoading(false); }
+    };
+
+    // Escape hatch: none of the member's 3 preferred/revisit dates work for the
+    // inspector (e.g. representative unavailable) — propose a different date
+    // and let the member accept it or flag they're unavailable via chat.
+    const handleProposeAlternateDate = async () => {
+        if (!proposeDate) { showToast('Please pick a date to propose.', 'error'); return; }
+        setAccredActionLoading(true);
+        try {
+            await updateDoc(doc(db, 'accreditation_applications', app.id), {
+                status: 'visit_date_proposed',
+                stage: 3,
+                visitData: {
+                    ...(app.visitData || { scheduledDate: '', scheduledTime: '', inspectorName: '', notes: '' }),
+                    scheduledDate: '',
+                    adminProposedDate: proposeDate,
+                    proposedForRevisit: isRevisit,
+                },
+                updatedAt: serverTimestamp(),
+            });
+            await addDoc(collection(db, 'member_notifications'), {
+                clinicId: app.clinicId, type: 'accreditation_visit_proposed',
+                title: 'New Site Visit Date Proposed',
+                body: `None of your preferred dates worked for the PAHA inspector. A new date was proposed for ${app.clinicName}: ${new Date(proposeDate).toLocaleDateString()}. Please review and respond.`,
+                read: false, createdAt: serverTimestamp(),
+            });
+            showToast('Alternate date proposed. Member notified.', 'success');
+            setShowProposeDate(false);
+            setProposeDate('');
+            setIsEditingDate(false);
+        } catch { showToast('Failed to propose date.', 'error'); }
+        finally { setAccredActionLoading(false); }
+    };
+
+    // Member flagged the proposed date doesn't work for them — once the admin
+    // has coordinated a replacement with them via chat, this sets it directly
+    // as the confirmed schedule. No second member-acceptance round; the chat
+    // conversation already served as the agreement.
+    const handleSendRescheduledDate = async () => {
+        if (!resendDate) { showToast('Please pick a date first.', 'error'); return; }
+        setAccredActionLoading(true);
+        try {
+            const nextStatus = app.visitData?.proposedForRevisit ? 'revisit_approved' : 'for_site_visit';
+            const { adminProposedDate, proposedForRevisit, proposalDeclinedAt, ...restVisitData } = app.visitData || { scheduledDate: '', scheduledTime: '', inspectorName: '', notes: '' };
+            await updateDoc(doc(db, 'accreditation_applications', app.id), {
+                status: nextStatus,
+                stage: 3,
+                visitData: { ...restVisitData, scheduledDate: resendDate, confirmedAt: new Date().toISOString() },
+                updatedAt: serverTimestamp(),
+            });
+            await addDoc(collection(db, 'member_notifications'), {
+                clinicId: app.clinicId, type: 'accreditation_visit_scheduled',
+                title: 'Site Visit Date Confirmed',
+                body: `Following your chat with PAHA, your site visit for ${app.clinicName} is now scheduled: ${new Date(resendDate).toLocaleDateString()}.`,
+                read: false, createdAt: serverTimestamp(),
+            });
+            showToast('New date sent to member.', 'success');
+            setResendDate('');
+        } catch { showToast('Failed to send new date.', 'error'); }
         finally { setAccredActionLoading(false); }
     };
 
@@ -377,7 +475,10 @@ const InspectApplicationModal: React.FC<Props> = ({ appId, adminRole = 'editor',
         if (app.status === 'needs_compliance') return <span className="px-4 py-1.5 rounded-full bg-red-100 text-red-700 font-bold text-xs uppercase">Failed</span>;
         if (app.status === 'under_review') return <span className="px-4 py-1.5 rounded-full bg-purple-100 text-purple-700 font-bold text-xs uppercase">Under Review</span>;
         if (app.status === 'vef_failed') return <span className="px-4 py-1.5 rounded-full bg-red-100 text-red-700 font-bold text-xs uppercase">Site Visit Not Passed</span>;
-        if (app.status === 'revisit_requested') return <span className="px-4 py-1.5 rounded-full bg-amber-100 text-amber-700 font-bold text-xs uppercase">Request for Revisit</span>;
+        if (app.status === 'revisit_requested') return <span className="px-4 py-1.5 rounded-full bg-amber-100 text-amber-700 font-bold text-xs uppercase">Requesting for Visitation</span>;
+        if (app.status === 'visit_date_proposed' && app.visitData?.proposalDeclinedAt) return <span className="px-4 py-1.5 rounded-full bg-rose-100 text-rose-700 font-bold text-xs uppercase">Member Unavailable</span>;
+        if (app.status === 'visit_date_proposed') return <span className="px-4 py-1.5 rounded-full bg-amber-100 text-amber-700 font-bold text-xs uppercase">Awaiting Member Response</span>;
+        if (app.status === 'revisit_approved') return <span className="px-4 py-1.5 rounded-full bg-blue-100 text-blue-700 font-bold text-xs uppercase">Revisitation Approved</span>;
         if (app.status === 'accreditation_banned') return <span className="px-4 py-1.5 rounded-full bg-red-100 text-red-700 font-bold text-xs uppercase">Banned</span>;
         if (hasVisited) return <span className="px-4 py-1.5 rounded-full bg-teal-100 text-teal-700 font-bold text-xs uppercase">Visited</span>;
         if (app.status === 'for_site_visit') return <span className="px-4 py-1.5 rounded-full bg-amber-100 text-amber-700 font-bold text-xs uppercase">Wait for Visitation</span>;
@@ -518,17 +619,34 @@ const InspectApplicationModal: React.FC<Props> = ({ appId, adminRole = 'editor',
                         {/* Right column — actions */}
                         <div className="space-y-4">
                             {/* Preferred Visit Dates — overridden by the member's proposed REVISIT
-                                dates once a revisit has been requested. */}
-                            {(() => {
-                                const revisitDates = app.visitData?.preferredRevisitDates;
-                                const isRevisit = !!revisitDates?.length;
+                                dates once a revisit has been requested (the old initial-round dates
+                                are dropped from view entirely once revisit dates exist). */}
+                            {app.status !== 'visit_date_proposed' && (() => {
                                 const dates = isRevisit ? revisitDates! : (app.loiData?.preferredVisitDates || []);
-                                const selected = isRevisit ? selectedRevisitDate : selectedVisitDate;
+                                const locked = isCommitted && !isEditingDate;
+                                // Once locked, show the ACTUAL scheduled date (source of truth in
+                                // Firestore) — not the local radio state, which defaults to the
+                                // first option on load and drifts from whatever was really picked.
+                                const selected = locked ? (app.visitData?.scheduledDate || '') : (isRevisit ? selectedRevisitDate : selectedVisitDate);
                                 const setSelected = isRevisit ? setSelectedRevisitDate : setSelectedVisitDate;
-                                const locked = isRevisit ? false : hasVisited;
+                                // isEditingDate is an explicit admin override, so it's allowed
+                                // even after the round is "visited" (e.g. correcting a mistaken
+                                // schedule after a failed VEF).
+                                const canAct = adminRole !== 'viewer' && (isEditingDate || (!roundVisited && !isCommitted));
+                                const onConfirm = isRevisit ? handleApproveRevisit : handleScheduleSiteVisit;
                                 return (
                                     <div className={`bg-white dark:bg-slate-800/40 rounded-[10px] border p-4 ${isRevisit ? 'border-amber-200 dark:border-amber-500/20' : 'border-slate-200 dark:border-white/5'}`}>
-                                        <h3 className={`text-xs font-bold uppercase tracking-widest mb-4 ${isRevisit ? 'text-amber-600' : 'text-slate-400'}`}>{isRevisit ? 'Preferred Revisit Dates' : 'Preferred Visit Dates'}</h3>
+                                        <div className="flex items-center justify-between mb-4">
+                                            <h3 className={`text-xs font-bold uppercase tracking-widest ${isRevisit ? 'text-amber-600' : 'text-slate-400'}`}>{isRevisit ? 'Preferred Revisit Dates' : 'Preferred Visit Dates'}</h3>
+                                            {isCommitted && !isEditingDate && adminRole !== 'viewer' && (
+                                                <button
+                                                    onClick={() => setIsEditingDate(true)}
+                                                    className="text-[10px] font-bold text-primary uppercase tracking-widest flex items-center gap-1 hover:underline"
+                                                >
+                                                    <span className="material-symbols-outlined text-sm">edit</span>Edit
+                                                </button>
+                                            )}
+                                        </div>
                                         {dates.length ? (
                                             <div className="space-y-2">
                                                 {dates.map((date, i) => (
@@ -538,29 +656,109 @@ const InspectApplicationModal: React.FC<Props> = ({ appId, adminRole = 'editor',
                                                             : 'border-slate-100 dark:border-white/5 hover:border-slate-200'
                                                     }`}>
                                                         <input id={`iap-visit-${i}`} type="radio" name="iapVisitDate" value={date} checked={selected === date} onChange={() => setSelected(date)} disabled={locked} className="accent-primary disabled:cursor-not-allowed" />
-                                                        <div>
+                                                        <div className="flex-1">
                                                             <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Option {i + 1}</p>
                                                             <p className="text-sm font-bold text-slate-900 dark:text-white">{new Date(date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', year: 'numeric', month: 'long', day: 'numeric' })}</p>
                                                         </div>
+                                                        {locked && selected === date && (
+                                                            <span className="material-symbols-outlined text-primary text-lg">lock</span>
+                                                        )}
                                                     </label>
                                                 ))}
                                             </div>
                                         ) : (
                                             <p className="text-sm text-slate-400 italic">No preferred dates submitted.</p>
                                         )}
-                                        {isRevisit && app.status === 'revisit_requested' && adminRole !== 'viewer' && (
+                                        {canAct && (isRevisit || isEditingDate) && (
                                             <button
-                                                onClick={handleApproveRevisit}
-                                                disabled={accredActionLoading || !selectedRevisitDate}
+                                                onClick={onConfirm}
+                                                disabled={accredActionLoading || !selected}
                                                 className="w-full mt-4 py-3 rounded-[10px] font-bold text-sm bg-primary text-white hover:bg-primary/90 transition-all shadow-lg shadow-primary/20 flex items-center justify-center gap-2 disabled:opacity-40"
                                             >
                                                 {accredActionLoading ? <span className="animate-spin border-2 border-white/30 border-t-white rounded-full size-4" /> : <span className="material-symbols-outlined text-sm">event_available</span>}
-                                                Approve Revisit
+                                                {isEditingDate ? 'Save New Date' : 'Approve Revisit'}
                                             </button>
+                                        )}
+
+                                        {/* Escape hatch — none of the 3 dates work (e.g. inspector/rep unavailable) */}
+                                        {dates.length > 0 && !roundVisited && adminRole !== 'viewer' && (
+                                            !showProposeDate ? (
+                                                <button
+                                                    onClick={() => setShowProposeDate(true)}
+                                                    className="w-full mt-3 py-2.5 rounded-[10px] font-bold text-[11px] uppercase tracking-wider text-slate-500 hover:text-primary hover:bg-primary/5 transition-all border border-dashed border-slate-200 dark:border-white/10"
+                                                >
+                                                    None of these dates work — propose a different date
+                                                </button>
+                                            ) : (
+                                                <div className="mt-3 p-3 rounded-[10px] border border-slate-200 dark:border-white/10 space-y-2">
+                                                    <label htmlFor="iap-propose-date" className="text-[10px] font-bold text-slate-500 uppercase tracking-widest block">Propose Alternate Date</label>
+                                                    <input
+                                                        id="iap-propose-date"
+                                                        type="date"
+                                                        value={proposeDate}
+                                                        min={minVisitDateStr}
+                                                        onChange={e => setProposeDate(e.target.value)}
+                                                        className="w-full px-3 py-2 text-sm border border-slate-200 dark:border-white/10 rounded-[10px] bg-white dark:bg-slate-900 outline-none focus:ring-2 focus:ring-primary/20"
+                                                    />
+                                                    <div className="flex gap-2">
+                                                        <button onClick={() => { setShowProposeDate(false); setProposeDate(''); }} className="flex-1 py-2 text-xs font-bold rounded-[10px] border border-slate-200 text-slate-500 hover:bg-slate-50 transition-colors">Cancel</button>
+                                                        <button onClick={handleProposeAlternateDate} disabled={accredActionLoading || !proposeDate} className="flex-1 py-2 text-xs font-bold rounded-[10px] bg-amber-500 text-white hover:bg-amber-600 transition-colors disabled:opacity-40">
+                                                            Send to Member
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            )
                                         )}
                                     </div>
                                 );
                             })()}
+
+                            {/* Awaiting member response to a proposed alternate date */}
+                            {app.status === 'visit_date_proposed' && app.visitData?.adminProposedDate && !app.visitData?.proposalDeclinedAt && (
+                                <div className="bg-white dark:bg-slate-800/40 rounded-[10px] border border-amber-200 dark:border-amber-500/20 p-4">
+                                    <h3 className="text-xs font-bold uppercase tracking-widest text-amber-600 mb-2">Awaiting Member Response</h3>
+                                    <p className="text-sm font-bold text-slate-900 dark:text-white">
+                                        {new Date(app.visitData.adminProposedDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+                                    </p>
+                                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Proposed to the member — waiting for them to accept or flag unavailability via chat.</p>
+                                </div>
+                            )}
+
+                            {/* Member flagged the proposed date doesn't work — coordinate a
+                                replacement via chat, then set it directly here (no second
+                                member-acceptance round needed). */}
+                            {app.status === 'visit_date_proposed' && app.visitData?.proposalDeclinedAt && (
+                                <div className="bg-white dark:bg-slate-800/40 rounded-[10px] border border-rose-200 dark:border-rose-500/20 p-4 space-y-3">
+                                    <h3 className="text-xs font-bold uppercase tracking-widest text-rose-600 flex items-center gap-1.5">
+                                        <span className="material-symbols-outlined text-sm">event_busy</span>
+                                        Member Unavailable — Reschedule Needed
+                                    </h3>
+                                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                                        {app.clinicName} flagged that {app.visitData.adminProposedDate ? new Date(app.visitData.adminProposedDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) : 'the proposed date'} doesn't work for them. Coordinate a new date via the chat, then send it below — it's set immediately, no further confirmation needed.
+                                    </p>
+                                    {adminRole !== 'viewer' && (
+                                        <div className="space-y-2">
+                                            <label htmlFor="iap-resend-date" className="text-[10px] font-bold text-slate-500 uppercase tracking-widest block">New Site Visit Date</label>
+                                            <input
+                                                id="iap-resend-date"
+                                                type="date"
+                                                value={resendDate}
+                                                min={minVisitDateStr}
+                                                onChange={e => setResendDate(e.target.value)}
+                                                className="w-full px-3 py-2 text-sm border border-slate-200 dark:border-white/10 rounded-[10px] bg-white dark:bg-slate-900 outline-none focus:ring-2 focus:ring-primary/20"
+                                            />
+                                            <button
+                                                onClick={handleSendRescheduledDate}
+                                                disabled={accredActionLoading || !resendDate}
+                                                className="w-full py-2.5 text-xs font-bold rounded-[10px] bg-rose-500 text-white hover:bg-rose-600 transition-colors disabled:opacity-40 flex items-center justify-center gap-2"
+                                            >
+                                                {accredActionLoading ? <span className="animate-spin border-2 border-white/30 border-t-white rounded-full size-4" /> : <span className="material-symbols-outlined text-sm">send</span>}
+                                                Send New Date to Member
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
 
                             {/* Waiting note — LOI approved, applicant still working on self-assessment */}
                             {app.status === 'loi_approved' && (
@@ -595,31 +793,37 @@ const InspectApplicationModal: React.FC<Props> = ({ appId, adminRole = 'editor',
                                         </button>
                                     )}
 
-                                    {!showFailInput ? (
-                                        <button
-                                            onClick={() => setShowFailInput(true)}
-                                            className="w-full py-4 rounded-[10px] font-bold text-sm bg-red-500 text-white hover:bg-red-600 transition-all shadow-lg shadow-red-500/20 flex items-center justify-center gap-2"
-                                        >
-                                            <span className="material-symbols-outlined text-sm">cancel</span>
-                                            Failed — Reject Application
-                                        </button>
-                                    ) : (
-                                        <div className="space-y-3">
-                                            <textarea
-                                                id="iap-fail-reason"
-                                                value={failReason}
-                                                onChange={e => setFailReason(e.target.value)}
-                                                placeholder="Enter reason for rejection..."
-                                                rows={3}
-                                                className="w-full px-4 py-3 text-sm border border-slate-200 dark:border-white/10 rounded-[10px] bg-white dark:bg-slate-900 focus:ring-2 focus:ring-red-500 outline-none resize-none"
-                                            />
-                                            <div className="flex gap-2">
-                                                <button onClick={() => setShowFailInput(false)} className="flex-1 py-2 text-xs font-bold rounded-[10px] border border-slate-200 text-slate-500 hover:bg-slate-50 transition-colors">Cancel</button>
-                                                <button onClick={handleFail} disabled={accredActionLoading || !failReason.trim()} className="flex-1 py-2 text-xs font-bold rounded-[10px] bg-red-500 text-white hover:bg-red-600 transition-colors disabled:opacity-40">
-                                                    Confirm Rejection
-                                                </button>
+                                    {/* Reject-back-to-Stage-1 only makes sense while reviewing the LOI
+                                        itself — it must NOT show once the LOI is already approved and
+                                        the applicant is past self-assessment, or clicking it wrongly
+                                        wipes an already-approved application back to "LOI Rejected". */}
+                                    {(app.status === 'intent_submitted' || app.status === 'intent_resubmitted') && (
+                                        !showFailInput ? (
+                                            <button
+                                                onClick={() => setShowFailInput(true)}
+                                                className="w-full py-4 rounded-[10px] font-bold text-sm bg-red-500 text-white hover:bg-red-600 transition-all shadow-lg shadow-red-500/20 flex items-center justify-center gap-2"
+                                            >
+                                                <span className="material-symbols-outlined text-sm">cancel</span>
+                                                Failed — Reject Application
+                                            </button>
+                                        ) : (
+                                            <div className="space-y-3">
+                                                <textarea
+                                                    id="iap-fail-reason"
+                                                    value={failReason}
+                                                    onChange={e => setFailReason(e.target.value)}
+                                                    placeholder="Enter reason for rejection..."
+                                                    rows={3}
+                                                    className="w-full px-4 py-3 text-sm border border-slate-200 dark:border-white/10 rounded-[10px] bg-white dark:bg-slate-900 focus:ring-2 focus:ring-red-500 outline-none resize-none"
+                                                />
+                                                <div className="flex gap-2">
+                                                    <button onClick={() => setShowFailInput(false)} className="flex-1 py-2 text-xs font-bold rounded-[10px] border border-slate-200 text-slate-500 hover:bg-slate-50 transition-colors">Cancel</button>
+                                                    <button onClick={handleFail} disabled={accredActionLoading || !failReason.trim()} className="flex-1 py-2 text-xs font-bold rounded-[10px] bg-red-500 text-white hover:bg-red-600 transition-colors disabled:opacity-40">
+                                                        Confirm Rejection
+                                                    </button>
+                                                </div>
                                             </div>
-                                        </div>
+                                        )
                                     )}
                                     {app.status === 'self_assessment_completed' && !selectedVisitDate && <p className="text-[10px] text-amber-600 font-semibold text-center">Select a visit date above before scheduling</p>}
                                 </div>
@@ -634,10 +838,10 @@ const InspectApplicationModal: React.FC<Props> = ({ appId, adminRole = 'editor',
                             )}
 
                             {/* Visit scheduled notice + VEF */}
-                            {(app.status === 'for_site_visit' || hasVisited) && app.visitData && (
+                            {(app.status === 'for_site_visit' || app.status === 'revisit_approved' || hasVisited) && app.visitData?.scheduledDate && (
                                 <div className={`rounded-[10px] border p-5 ${app.status === 'vef_failed' ? 'bg-red-50 dark:bg-red-900/10 border-red-200 dark:border-red-500/20' : 'bg-amber-50 dark:bg-amber-900/10 border-amber-200 dark:border-amber-500/20'}`}>
                                     <p className={`text-xs font-bold uppercase tracking-widest mb-2 ${app.status === 'vef_failed' ? 'text-red-600' : 'text-amber-600'}`}>
-                                        {app.status === 'vef_failed' ? 'Site Visit Not Passed' : hasVisited ? 'Site Visit Completed' : 'Wait for Visitation'}
+                                        {app.status === 'vef_failed' ? 'Site Visit Not Passed' : hasVisited ? 'Site Visit Completed' : app.status === 'revisit_approved' ? 'Revisitation Approved' : 'Wait for Visitation'}
                                     </p>
                                     <p className="text-sm font-bold text-slate-900 dark:text-white mb-4">
                                         {new Date(app.visitData.scheduledDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
@@ -777,7 +981,7 @@ const InspectApplicationModal: React.FC<Props> = ({ appId, adminRole = 'editor',
                             {/* Final Review decision — visible for any status once the site visit/VEF has
                                 happened, independent of uploaded files. Nothing here is irrevocable: even
                                 a finalized (for_payment/paid/accredited) application can still be disapproved. */}
-                            {adminRole !== 'viewer' && hasVisited && app.status !== 'rejected' && app.status !== 'vef_failed' && (() => {
+                            {adminRole !== 'viewer' && roundVisited && app.status !== 'rejected' && app.status !== 'vef_failed' && (() => {
                                 const isFinalized = app.status === 'for_payment' || app.status === 'paid' || app.status === 'accredited';
                                 return (
                                 <div className="bg-white dark:bg-slate-800/40 rounded-[10px] border border-slate-200 dark:border-white/5 p-4 space-y-3">

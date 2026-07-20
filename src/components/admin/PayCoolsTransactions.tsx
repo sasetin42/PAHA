@@ -293,11 +293,11 @@ const [diagnosticsModal, setDiagnosticsModal] = useState<any | null>(null);
                     <span className="material-symbols-outlined">
                         {toast.type === 'success' ? 'check_circle' : 'error'}
                     </span>
-        {toast.message}
-        </div>
-      )}
+                    {toast.message}
+                </div>
+            )}
 
-      {/* Dashboard Cards / KPIs */}
+            {/* Dashboard Cards / KPIs */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 print:hidden">
                 <div className="bg-white dark:bg-slate-800 p-5 rounded-[12px] shadow-sm border border-slate-200 dark:border-white/5 flex items-center justify-between">
                     <div>
@@ -750,13 +750,13 @@ const [diagnosticsModal, setDiagnosticsModal] = useState<any | null>(null);
                         <div className="flex-1 overflow-auto pr-1">
                             <pre className="p-4 bg-black/40 rounded-[10px] font-mono text-[11px] leading-relaxed text-emerald-400">
                                 {JSON.stringify(diagnosticsModal.data, null, 4)}
-        </pre>
+                            </pre>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
-      </div>
-    </div>
-  )}
-</div>
-);
+    );
 };
 
 export default PayCoolsTransactions;

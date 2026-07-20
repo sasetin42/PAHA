@@ -86,9 +86,19 @@ const AccreditationPipeline: React.FC<{ embedded?: boolean }> = ({ embedded = fa
 
   const [visitDates, setVisitDates] = useState(['', '', '']);
   const [visitDateErrors, setVisitDateErrors] = useState(['', '', '']);
-  // Local YYYY-MM-DD for today, used as the `min` bound so no past date is selectable.
+  // Local YYYY-MM-DD for today, used to reject past dates.
   const todayStr = useMemo(() => {
     const d = new Date();
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  }, []);
+  // A site visit can never be scheduled for today — earliest selectable date
+  // is tomorrow, used as the `min` bound on every visit-date picker.
+  const minVisitDateStr = useMemo(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 1);
     const yyyy = d.getFullYear();
     const mm = String(d.getMonth() + 1).padStart(2, '0');
     const dd = String(d.getDate()).padStart(2, '0');
@@ -100,7 +110,13 @@ const AccreditationPipeline: React.FC<{ embedded?: boolean }> = ({ embedded = fa
 const [loiPdfUploading, setLoiPdfUploading] = useState(false);
   const [showRevisitDateInput, setShowRevisitDateInput] = useState(false);
   const [revisitDates, setRevisitDates] = useState(['', '', '']);
+  const [showDateProposalDeclined, setShowDateProposalDeclined] = useState(false);
+  const [revisitDateErrors, setRevisitDateErrors] = useState(['', '', '']);
   const [viewingStage, setViewingStage] = useState<number | null>(null);
+  // Lets a member re-open and resubmit an already-submitted self-assessment —
+  // only meaningful before a site visit has been scheduled/completed, since
+  // the physical inspection becomes the authoritative record after that.
+  const [retakingAssessment, setRetakingAssessment] = useState(false);
   // Snap back to the live/current stage whenever the application's workflow
   // status actually advances (e.g. admin approves/schedules something while
   // the member is sitting on a different tab) — otherwise the member gets
@@ -241,10 +257,60 @@ const [loiPdfUploading, setLoiPdfUploading] = useState(false);
       loiForm.clinicAddress &&
       loiForm.email &&
       loiForm.phone &&
-      visitDates.filter(d => d).length === 3 &&
       loiForm.declarationChecked
     );
-  }, [loiForm, visitDates]);
+  }, [loiForm]);
+
+  // Every date ever offered by the member (initial round + all revisit
+  // rounds) — a date must never be selectable again once it's been used.
+  // Unioned with the actual submitted date fields (not just the tracking
+  // array) so this self-heals for applications whose original 3 dates were
+  // saved before `usedVisitDates` existed and would otherwise sit at [].
+  const usedVisitDates = Array.from(new Set([
+    ...(application?.usedVisitDates || []),
+    ...(application?.loiData?.preferredVisitDates || []),
+    ...(application?.visitData?.preferredRevisitDates || []),
+  ]));
+
+  const canSubmitVisitDates = useMemo(() => {
+    return visitDates.filter(d => d).length === 3;
+  }, [visitDates]);
+
+  const handleSubmitVisitDates = async () => {
+    if (!application || !user || !canSubmitVisitDates) return;
+    setSubmitting(true);
+
+    const chosenDates = visitDates.filter(d => d);
+    try {
+      await updateDoc(doc(db, 'accreditation_applications', application.id), {
+        'loiData.preferredVisitDates': chosenDates,
+        usedVisitDates: [...usedVisitDates, ...chosenDates],
+        updatedAt: serverTimestamp(),
+      });
+      setApplication(prev => prev ? {
+        ...prev,
+        loiData: prev.loiData ? { ...prev.loiData, preferredVisitDates: chosenDates } : prev.loiData,
+        usedVisitDates: [...usedVisitDates, ...chosenDates],
+      } : null);
+      setVisitDates(['', '', '']);
+      setSuccessMessage('Preferred site visit dates submitted!');
+      setShowSuccessModal(true);
+
+      await addDoc(collection(db, 'admin_notifications'), {
+        type: 'accreditation',
+        title: 'Preferred Site Visit Dates Submitted',
+        body: `${application.clinicName} submitted their preferred site visit dates: ${chosenDates.map(d => new Date(d).toLocaleDateString()).join(', ')}.`,
+        link: 'accreditation',
+        read: false,
+        createdAt: serverTimestamp(),
+      });
+    } catch (error) {
+      console.error('Error submitting visit dates:', error);
+      alert('Failed to submit preferred visit dates');
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   const handleSubmitSelfAssessment = async () => {
     if (!application || !user) return;
@@ -264,6 +330,7 @@ const [loiPdfUploading, setLoiPdfUploading] = useState(false);
       });
 
       setApplication(prev => prev ? { ...prev, selfAssessmentData, status: 'self_assessment_completed' } : null);
+      setRetakingAssessment(false);
       setSuccessMessage('Self-assessment submitted successfully!');
       setShowSuccessModal(true);
 
@@ -272,6 +339,72 @@ const [loiPdfUploading, setLoiPdfUploading] = useState(false);
         type: 'accreditation',
         title: 'Self-Assessment Completed',
         body: `${application.clinicName} has completed the self-assessment form.`,
+        link: 'accreditation',
+        read: false,
+        createdAt: serverTimestamp(),
+      });
+
+      // Member-only reminder of what's still missing before the site visit —
+      // never sent to admin, since it's just guidance for the clinic itself.
+      const gaps = computeGapSummary(STANDARD_2026, checkedItems);
+      if (gaps.length > 0) {
+        const missingList = gaps
+          .slice(0, 5)
+          .map(g => g.missingCompulsory.length > 0
+            ? `${g.sectionId} (${g.missingCompulsory.length} item${g.missingCompulsory.length !== 1 ? 's' : ''} missing)`
+            : `${g.sectionId} (below passing score)`)
+          .join(', ');
+        const more = gaps.length > 5 ? ` and ${gaps.length - 5} more section(s)` : '';
+        await addDoc(collection(db, 'member_notifications'), {
+          uid: user.uid,
+          clinicId: user.uid,
+          type: 'self_assessment_gaps',
+          title: 'Requirements Still Missing',
+          body: `Your self-assessment found gaps in: ${missingList}${more}. Review the "What's missing" panel in Accreditation before your site visit.`,
+          link: 'accreditation',
+          read: false,
+          createdAt: serverTimestamp(),
+        });
+      }
+    } catch (error) {
+      console.error('Error submitting self-assessment:', error);
+      alert('Failed to submit self-assessment');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // Reopening and resubmitting an ALREADY-submitted self-assessment (the
+  // "Retake" flow) — unlike the first-time submit above, this must NOT touch
+  // `status`/`stage`. The application may already be scheduled for (or even
+  // past) its site visit; forcibly resetting status back to
+  // 'self_assessment_completed' would wrongly unwind that progress. Only the
+  // stored checklist data is updated.
+  const handleResubmitSelfAssessment = async () => {
+    if (!application || !user) return;
+
+    setSubmitting(true);
+    try {
+      const selfAssessmentData: SelfAssessmentData = {
+        checkedItems,
+        categoryScores: selfAssessmentScores,
+        submittedAt: new Date().toISOString(),
+      };
+
+      await updateDoc(doc(db, 'accreditation_applications', application.id), {
+        selfAssessmentData,
+        updatedAt: serverTimestamp(),
+      });
+
+      setApplication(prev => prev ? { ...prev, selfAssessmentData } : null);
+      setRetakingAssessment(false);
+      setSuccessMessage('Self-assessment updated!');
+      setShowSuccessModal(true);
+
+      await addDoc(collection(db, 'admin_notifications'), {
+        type: 'accreditation',
+        title: 'Self-Assessment Updated',
+        body: `${application.clinicName} retook and updated their self-assessment.`,
         link: 'accreditation',
         read: false,
         createdAt: serverTimestamp(),
@@ -325,7 +458,7 @@ const [loiPdfUploading, setLoiPdfUploading] = useState(false);
     const loiData: LOIData = {
       ...loiForm,
       phone: rawPhone ? `+63${rawPhone}` : '',
-      preferredVisitDates: visitDates.filter(d => d),
+      preferredVisitDates: [],
       loiRef,
     };
 
@@ -375,6 +508,8 @@ const [loiPdfUploading, setLoiPdfUploading] = useState(false);
         submittedAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         loiData,
+        loiPdfUrl: loiPdfUrl || undefined,
+        loiPdfName: loiPdfName || undefined,
         selfAssessmentData: null,
         visitData: null,
         complianceData: null,
@@ -383,6 +518,7 @@ const [loiPdfUploading, setLoiPdfUploading] = useState(false);
       };
 
       setApplication(newApp);
+      setLoiPdfFile(null);
       setSuccessMessage(`Letter of Intent submitted! Reference: ${loiRef}`);
       setShowSuccessModal(true);
 
@@ -477,15 +613,18 @@ const [loiPdfUploading, setLoiPdfUploading] = useState(false);
         ...(application.visitData || { scheduledDate: '', scheduledTime: '', inspectorName: '', notes: '' }),
         preferredRevisitDates: chosenDates,
       };
+      const newUsedDates = [...usedVisitDates, ...chosenDates];
       await updateDoc(doc(db, 'accreditation_applications', application.id), {
         status: 'revisit_requested',
         stage: 3,
         visitData: newVisitData,
+        usedVisitDates: newUsedDates,
         updatedAt: serverTimestamp(),
       });
-      setApplication(prev => prev ? { ...prev, status: 'revisit_requested', stage: 3, visitData: newVisitData } : null);
+      setApplication(prev => prev ? { ...prev, status: 'revisit_requested', stage: 3, visitData: newVisitData, usedVisitDates: newUsedDates } : null);
       setShowRevisitDateInput(false);
       setRevisitDates(['', '', '']);
+      setRevisitDateErrors(['', '', '']);
       setSuccessMessage('Revisit requested! PAHA will confirm a date shortly.');
       setShowSuccessModal(true);
 
@@ -500,6 +639,84 @@ const [loiPdfUploading, setLoiPdfUploading] = useState(false);
     } catch (error) {
       console.error('Error requesting revisit:', error);
       alert('Failed to request revisit. Please try again.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // Member accepts the alternate date the admin proposed (used when none of
+  // the member's 3 preferred dates worked for the inspector) — resolves to
+  // the correct next status depending on whether this was the initial visit
+  // or a revisit round.
+  const handleAcceptProposedDate = async () => {
+    const proposedDate = application?.visitData?.adminProposedDate;
+    if (!application || !proposedDate) return;
+    setSubmitting(true);
+    try {
+      const nextStatus = application.visitData?.proposedForRevisit ? 'revisit_approved' : 'for_site_visit';
+      const { adminProposedDate, proposedForRevisit, ...restVisitData } = application.visitData || { scheduledDate: '', scheduledTime: '', inspectorName: '', notes: '' };
+      const newVisitData = {
+        ...restVisitData,
+        scheduledDate: proposedDate,
+        confirmedAt: new Date().toISOString(),
+      };
+      await updateDoc(doc(db, 'accreditation_applications', application.id), {
+        status: nextStatus,
+        stage: 3,
+        visitData: newVisitData,
+        updatedAt: serverTimestamp(),
+      });
+      setApplication(prev => prev ? { ...prev, status: nextStatus, stage: 3, visitData: newVisitData } : null);
+      setShowDateProposalDeclined(false);
+      setSuccessMessage('Visit date confirmed!');
+      setShowSuccessModal(true);
+
+      await addDoc(collection(db, 'admin_notifications'), {
+        type: 'accreditation',
+        title: 'Proposed Visit Date Accepted',
+        body: `${application.clinicName} accepted the proposed site visit date: ${new Date(proposedDate).toLocaleDateString()}.`,
+        link: 'accreditation',
+        read: false,
+        createdAt: serverTimestamp(),
+      });
+    } catch (error) {
+      console.error('Error accepting proposed date:', error);
+      alert('Failed to accept the proposed date. Please try again.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // Member flags that the admin-proposed date doesn't work for them — this
+  // used to be a purely local UI message telling them to go chat, with no
+  // signal reaching the admin side at all. Now it also notifies the admin
+  // and flags the application so the admin dashboard shows a "propose a new
+  // date directly" panel instead of endlessly waiting for a response.
+  const handleDeclineProposedDate = async () => {
+    if (!application?.visitData?.adminProposedDate) return;
+    setSubmitting(true);
+    try {
+      const proposalDeclinedAt = new Date().toISOString();
+      await updateDoc(doc(db, 'accreditation_applications', application.id), {
+        'visitData.proposalDeclinedAt': proposalDeclinedAt,
+        updatedAt: serverTimestamp(),
+      });
+      setApplication(prev => prev ? {
+        ...prev,
+        visitData: prev.visitData ? { ...prev.visitData, proposalDeclinedAt } : prev.visitData,
+      } : null);
+      setShowDateProposalDeclined(true);
+
+      await addDoc(collection(db, 'admin_notifications'), {
+        type: 'accreditation',
+        title: 'Member Unavailable for Proposed Visit Date',
+        body: `${application.clinicName} can't make the proposed site visit date (${new Date(application.visitData.adminProposedDate).toLocaleDateString()}). Coordinate a new date via chat, then set it directly in Accreditation.`,
+        link: 'accreditation',
+        read: false,
+        createdAt: serverTimestamp(),
+      });
+    } catch (error) {
+      console.error('Error declining proposed date:', error);
     } finally {
       setSubmitting(false);
     }
@@ -528,6 +745,37 @@ const [loiPdfUploading, setLoiPdfUploading] = useState(false);
     } catch (error) {
       console.error('Error proceeding to review:', error);
       alert('Failed to proceed. Please try again.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // Member-initiated: after the Final Review (post-visit compliance check) is
+  // declined, this puts the SAME application back in the review queue once
+  // they've fixed whatever the remarks flagged — no new entry created.
+  const handleResubmitFinalReview = async () => {
+    if (!application) return;
+    setSubmitting(true);
+    try {
+      await updateDoc(doc(db, 'accreditation_applications', application.id), {
+        status: 'under_review',
+        updatedAt: serverTimestamp(),
+      });
+      setApplication(prev => prev ? { ...prev, status: 'under_review' } : null);
+      setSuccessMessage('Application resubmitted for review!');
+      setShowSuccessModal(true);
+
+      await addDoc(collection(db, 'admin_notifications'), {
+        type: 'accreditation',
+        title: 'Application Resubmitted — Final Review',
+        body: `${application.clinicName} resubmitted their application after addressing the final review feedback.`,
+        link: 'accreditation',
+        read: false,
+        createdAt: serverTimestamp(),
+      });
+    } catch (error) {
+      console.error('Error resubmitting application:', error);
+      alert('Failed to resubmit. Please try again.');
     } finally {
       setSubmitting(false);
     }
@@ -613,10 +861,13 @@ const [loiPdfUploading, setLoiPdfUploading] = useState(false);
     return null;
   }
 
-  // Visit is done once a Visiting Evaluation Form exists (or status/visitData reflects it)
+  // Visit is done once THIS round's visitData has been marked complete.
+  // Deliberately NOT based on `visitingEvaluationForms.length > 0` — that
+  // array keeps every past (e.g. failed) VEF, so it would stay truthy
+  // forever and wrongly mark a freshly-scheduled revisit as "already
+  // visited" before the revisit has actually happened.
   const hasVisited = application?.status === 'inspection_completed'
-    || !!application?.visitData?.completedAt
-    || (((application as any)?.visitingEvaluationForms?.length ?? 0) > 0);
+    || !!application?.visitData?.completedAt;
   const currentStatus = application?.status || 'not_started';
   // A rejected LOI must not carry the applicant further down the pipeline —
   // force them back to Stage 1 (resubmit) regardless of any stale `stage`
@@ -629,10 +880,33 @@ const [loiPdfUploading, setLoiPdfUploading] = useState(false);
   // to stage 4 (per the 3-strike policy), so don't override it with a fixed 3.
   const isVefFailed = currentStatus === 'vef_failed' || currentStatus === 'revisit_requested';
   const isBanned = currentStatus === 'accreditation_banned';
-  const currentStage = isRejected ? 1
-    : isBanned ? 1
-    : isVefFailed ? (application?.stage as AccreditationStage || 3)
-    : Math.max(application?.stage || 1, hasVisited ? 4 : 0) as AccreditationStage;
+  
+  // Map workflow status to StageTracker stage (1-8, stage 6 retired — merged into stage 7)
+  // StageTracker stages: 1=Intent, 2=Self-Assessment, 3=Site Visit, 4=Compliance, 5=Admin Review, 7=Approved. For Payment, 8=Accredited
+  const getTrackerStage = (): number => {
+    if (isRejected || isBanned) return 1;
+    if (isVefFailed) return Math.min(application?.stage as number || 3, 4);
+
+    // Site visit phase — submitting/awaiting preferred dates, awaiting member
+    // response to an admin-proposed date, or a confirmed visit (initial or
+    // revisit round)
+    if (currentStatus === 'self_assessment_completed' || currentStatus === 'visit_date_proposed' || currentStatus === 'for_site_visit' || currentStatus === 'revisit_approved') return 3;
+
+    // Admin review phase — Stage 5
+    if (currentStatus === 'under_review') return 5;
+
+    // Final review outcomes
+    if (currentStatus === 'needs_compliance') return 5; // Rejected at final review — show on Stage 5
+    if (currentStatus === 'approved' || currentStatus === 'for_payment') return 7; // Approved -> Stage 7 (Approved. For Payment)
+    if (currentStatus === 'paid') return 7;
+    if (application?.paymentData?.confirmedAt) return 8;
+    
+    // Standard pipeline progression
+    return Math.max(application?.stage || 1, hasVisited ? 4 : 0) as AccreditationStage;
+  };
+
+  const currentStage = getTrackerStage();
+  const displayStage = currentStage;
 
   return (
     <div className={embedded ? 'pb-8' : 'min-h-screen bg-slate-100 dark:bg-slate-900 pt-28 pb-20 px-4'}>
@@ -671,7 +945,7 @@ const [loiPdfUploading, setLoiPdfUploading] = useState(false);
 
         {currentStage && (
           <div className="bg-white dark:bg-slate-800 rounded-3xl p-6 md:p-8 shadow-lg border border-slate-200 dark:border-slate-700 mb-4">
-            <StageTracker currentStage={currentStage as AccreditationStage} currentStatus={hasVisited && currentStatus === 'for_site_visit' ? 'inspection_completed' : currentStatus} />
+            <StageTracker currentStage={displayStage as AccreditationStage} currentStatus={hasVisited && currentStatus === 'for_site_visit' ? 'inspection_completed' : currentStatus} />
           </div>
         )}
 
@@ -682,16 +956,16 @@ const [loiPdfUploading, setLoiPdfUploading] = useState(false);
               {[
                 { stage: 1, label: 'Letter of Intent', icon: 'edit_document', available: true },
                 { stage: 2, label: 'Self-Assessment', icon: 'checklist', available: !isRejected && !!application.loiData },
-                { stage: 3, label: 'Site Visit', icon: 'event', available: !isRejected && !!application.visitData },
-                { stage: 4, label: 'Compliance Docs', icon: 'folder_open', available: !isRejected && application.stage >= 4 },
-                { stage: 5, label: 'Admin Review', icon: 'rate_review', available: !isRejected && application.stage >= 5 },
+                { stage: 3, label: 'Site Visit', icon: 'event', available: !isRejected && (!!application.visitData || currentStage >= 3) },
+                { stage: 4, label: 'Compliance Docs', icon: 'folder_open', available: !isRejected && currentStage >= 4 },
+                { stage: 5, label: 'Admin Review', icon: 'rate_review', available: !isRejected && currentStage >= 5 },
                 { stage: 6, label: 'Payment', icon: 'payments', available: !isRejected && !!application.paymentData },
               ].map(({ stage, label, icon, available }) => {
-                const isActive = (viewingStage ?? currentStage) === stage;
+                const isActive = (viewingStage ?? displayStage) === stage;
                 return (
                   <button
                     key={stage}
-                    onClick={() => available && setViewingStage(stage === currentStage ? null : stage)}
+                    onClick={() => available && setViewingStage(stage === displayStage ? null : stage)}
                     disabled={!available}
                     className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wide transition-all whitespace-nowrap ${
                       isActive
@@ -748,14 +1022,18 @@ const [loiPdfUploading, setLoiPdfUploading] = useState(false);
             </div>
             <div>
               <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3">Preferred Visit Dates</p>
-              <div className="flex flex-wrap gap-3">
-                {application.loiData.preferredVisitDates.map((d, i) => (
-                  <div key={i} className="px-4 py-2 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-xl">
-                    <p className="text-[9px] font-bold text-blue-400 uppercase tracking-widest">Option {i + 1}</p>
-                    <p className="text-sm font-bold text-blue-700 dark:text-blue-300">{new Date(d + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', year: 'numeric', month: 'long', day: 'numeric' })}</p>
-                  </div>
-                ))}
-              </div>
+              {application.loiData.preferredVisitDates.length ? (
+                <div className="flex flex-wrap gap-3">
+                  {application.loiData.preferredVisitDates.map((d, i) => (
+                    <div key={i} className="px-4 py-2 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-xl">
+                      <p className="text-[9px] font-bold text-blue-400 uppercase tracking-widest">Option {i + 1}</p>
+                      <p className="text-sm font-bold text-blue-700 dark:text-blue-300">{new Date(d + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', year: 'numeric', month: 'long', day: 'numeric' })}</p>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-slate-400 italic">Not submitted yet — you'll be asked for these once your self-assessment is complete.</p>
+              )}
             </div>
             {application.loiPdfUrl && (
               <div>
@@ -779,22 +1057,89 @@ const [loiPdfUploading, setLoiPdfUploading] = useState(false);
             <p className="text-slate-400 text-xs mt-1">This stage was passed without a submitted checklist.</p>
           </div>
         )}
-        {viewingStage === 2 && application?.selfAssessmentData && (
-          <div className="bg-white dark:bg-slate-800 rounded-3xl p-6 md:p-8 shadow-lg border border-slate-200 dark:border-slate-700 space-y-5">
-            <h2 className="text-xl font-bold text-[#1E3A8A] dark:text-white flex items-center gap-2">
-              <span className="material-symbols-outlined text-[#2563EB]">checklist</span>
-              Self-Assessment — Submitted {new Date(application.selfAssessmentData.submittedAt).toLocaleDateString()}
-            </h2>
-            <AccreditationChecklist
-              standard={STANDARD_2026}
-              mode="self-assessment"
-              value={application.selfAssessmentData.checkedItems}
-              onChange={() => {}}
-              readOnly
-              showGapSummary
-            />
-          </div>
-        )}
+        {viewingStage === 2 && application?.selfAssessmentData && (() => {
+          // Retake happens right here, inline — no separate screen to navigate
+          // to. Available any time up until the site visit has actually taken
+          // place (a scheduled-but-not-yet-visited date doesn't lock it) —
+          // only the physical inspection itself becomes the record of truth.
+          const canRetake = !hasVisited;
+          const editing = retakingAssessment && canRetake;
+          const allItems = ASSESSMENT_CATEGORIES.flatMap(cat =>
+            cat.items ? cat.items : cat.subCategories?.flatMap(s => s.items) ?? []
+          );
+          const totalItems = allItems.length;
+          const checkedCount = editing ? allItems.filter(i => checkedItems[i.id]).length : allItems.filter(i => application.selfAssessmentData!.checkedItems[i.id]).length;
+          const overallPct = totalItems > 0 ? Math.round((checkedCount / totalItems) * 100) : 0;
+
+          return (
+            <div className="bg-white dark:bg-slate-800 rounded-3xl p-6 md:p-8 shadow-lg border border-slate-200 dark:border-slate-700 space-y-5">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <h2 className="text-xl font-bold text-[#1E3A8A] dark:text-white flex items-center gap-2">
+                  <span className="material-symbols-outlined text-[#2563EB]">checklist</span>
+                  {editing ? 'Self-Assessment — Retaking' : `Self-Assessment — Submitted ${new Date(application.selfAssessmentData.submittedAt).toLocaleDateString()}`}
+                </h2>
+                {canRetake && (
+                  editing ? (
+                    <button
+                      onClick={() => { setRetakingAssessment(false); setCheckedItems(application.selfAssessmentData!.checkedItems); }}
+                      className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-slate-300 font-bold text-xs uppercase tracking-wider hover:bg-slate-200 dark:hover:bg-white/10 transition-all"
+                    >
+                      Cancel
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => setRetakingAssessment(true)}
+                      className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-blue-50 dark:bg-blue-900/20 text-[#2563EB] dark:text-blue-400 border border-blue-200 dark:border-blue-700 font-bold text-xs uppercase tracking-wider hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-all"
+                    >
+                      <span className="material-symbols-outlined text-sm">edit</span>
+                      Retake Self-Assessment
+                    </button>
+                  )
+                )}
+              </div>
+
+              {editing && (
+                <div className="bg-[#1E3A8A] dark:bg-[#1e3a8a] rounded-2xl p-5">
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-white font-bold text-sm">Overall Completion</span>
+                    <div className="flex items-center gap-4">
+                      <span className="text-blue-200 text-xs">{checkedCount} / {totalItems} items</span>
+                      <span className="text-white font-black text-lg">{overallPct}%</span>
+                    </div>
+                  </div>
+                  <div className="h-3 bg-white/20 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-gradient-to-r from-blue-400 to-emerald-400 rounded-full transition-all duration-500"
+                      style={{ width: `${overallPct}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              <AccreditationChecklist
+                standard={STANDARD_2026}
+                mode="self-assessment"
+                value={editing ? checkedItems : application.selfAssessmentData.checkedItems}
+                onChange={(next: Record<string, boolean>) => { if (editing) setCheckedItems(next); }}
+                readOnly={!editing}
+                showGapSummary
+              />
+
+              {editing && (
+                <div className="flex items-center justify-end gap-3">
+                  <button
+                    onClick={handleResubmitSelfAssessment}
+                    disabled={submitting}
+                    className="flex items-center gap-1.5 px-6 py-3 rounded-xl bg-emerald-500 text-white font-bold text-sm hover:bg-emerald-600 transition-all shadow-lg disabled:opacity-50"
+                  >
+                    {submitting ? <span className="animate-spin border-2 border-white/30 border-t-white rounded-full size-4" /> : <span className="material-symbols-outlined text-sm">send</span>}
+                    {submitting ? 'Submitting...' : 'Resubmit Assessment'}
+                  </button>
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
         {/* Stage 3 Review — Site Visit schedule + outcome */}
         {viewingStage === 3 && application?.visitData && (
@@ -1174,57 +1519,6 @@ const [loiPdfUploading, setLoiPdfUploading] = useState(false);
                 </div>
               </div>
 
-              <div>
-                <label className="text-sm font-bold text-slate-700 dark:text-slate-300 mb-3 block">
-                  Preferred Site Visit Dates (3 dates required) *
-                </label>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  {visitDates.map((date, idx) => (
-                    <div key={idx}>
-                      <label htmlFor={`pipeline-visitDate-${idx}`} className="text-xs font-bold text-slate-500 uppercase mb-1 block">Date {idx + 1}</label>
-                      <input
-                        id={`pipeline-visitDate-${idx}`}
-                        type="date"
-                        value={date}
-                        min={todayStr}
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          const newErrors = [...visitDateErrors];
-
-                          if (val && val < todayStr) {
-                            // Past date — reject, keep the field as-is
-                            newErrors[idx] = 'Past dates cannot be selected.';
-                            setVisitDateErrors(newErrors);
-                            return;
-                          }
-
-                          if (val && visitDates.some((d, i) => i !== idx && d === val)) {
-                            newErrors[idx] = 'This date is already selected for another slot.';
-                            setVisitDateErrors(newErrors);
-                            return;
-                          }
-
-                          newErrors[idx] = '';
-                          setVisitDateErrors(newErrors);
-                          const newDates = [...visitDates];
-                          newDates[idx] = val;
-                          setVisitDates(newDates);
-                        }}
-                        className={`w-full px-4 py-3 border rounded-xl bg-white dark:bg-slate-900 focus:ring-2 outline-none ${
-                          visitDateErrors[idx] ? 'border-red-400 focus:ring-red-400' : 'border-slate-200 dark:border-slate-600 focus:ring-[#2563EB]'
-                        }`}
-                      />
-                      {visitDateErrors[idx] && (
-                        <p className="text-[11px] text-red-500 font-semibold mt-1 flex items-center gap-1">
-                          <span className="material-symbols-outlined text-xs">error</span>
-                          {visitDateErrors[idx]}
-                        </p>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-
               {/* LOI PDF Upload */}
               <div className="p-4 border-2 border-dashed border-slate-200 dark:border-slate-600 rounded-xl">
                 <label className="text-sm font-bold text-slate-700 dark:text-slate-300 mb-2 flex items-center gap-2">
@@ -1331,19 +1625,179 @@ const [loiPdfUploading, setLoiPdfUploading] = useState(false);
           </div>
         )}
 
-        {viewingStage === null && application?.stage === 2 && currentStatus === 'self_assessment_completed' && !application.visitData && (
+        {viewingStage === null && application?.stage === 2 && currentStatus === 'self_assessment_completed' && !retakingAssessment && !application.visitData && !application.loiData?.preferredVisitDates?.length && (
+          <div className="space-y-6">
+            {(() => {
+              const gaps = computeGapSummary(STANDARD_2026, checkedItems);
+              if (gaps.length === 0) return null;
+              return (
+                <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-3xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div className="flex items-start gap-3">
+                    <span className="material-symbols-outlined text-2xl text-amber-500 shrink-0">warning</span>
+                    <div>
+                      <p className="font-bold text-amber-800 dark:text-amber-300 text-sm">Self-Assessment Still Has Gaps</p>
+                      <p className="text-amber-700 dark:text-amber-400 text-xs mt-0.5">
+                        {gaps.length} section{gaps.length !== 1 ? 's' : ''} still need attention. You can proceed as-is, or retake the self-assessment before scheduling your site visit.
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => { setRetakingAssessment(true); setViewingStage(2); }}
+                    className="shrink-0 flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs uppercase tracking-wider transition-all"
+                  >
+                    <span className="material-symbols-outlined text-sm">edit</span>
+                    Retake Self-Assessment
+                  </button>
+                </div>
+              );
+            })()}
+            <div className="bg-white dark:bg-slate-800 rounded-3xl p-6 md:p-8 shadow-lg border border-slate-200 dark:border-slate-700">
+              <h2 className="text-xl font-bold text-slate-800 dark:text-white mb-2 flex items-center gap-2">
+                <span className="material-symbols-outlined text-[#2563EB]">event</span>
+                Submit Preferred Site Visit Dates
+              </h2>
+              <p className="text-slate-500 dark:text-slate-400 mb-6 text-sm">
+                Self-assessment complete. Give PAHA 3 preferred dates for your site visit — an admin will confirm one of them (or propose an alternate if none work).
+              </p>
+
+              <div>
+                <label className="text-sm font-bold text-slate-700 dark:text-slate-300 mb-3 block">
+                  Preferred Site Visit Dates (3 dates required) *
+                </label>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {visitDates.map((date, idx) => (
+                    <div key={idx}>
+                      <label htmlFor={`pipeline-visitDate-${idx}`} className="text-xs font-bold text-slate-500 uppercase mb-1 block">Date {idx + 1}</label>
+                      <input
+                        id={`pipeline-visitDate-${idx}`}
+                        type="date"
+                        value={date}
+                        min={minVisitDateStr}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          const newErrors = [...visitDateErrors];
+
+                          if (val && val <= todayStr) {
+                            // Past date or today — reject, keep the field as-is
+                            newErrors[idx] = 'Today or past dates cannot be selected.';
+                            setVisitDateErrors(newErrors);
+                            return;
+                          }
+
+                          if (val && visitDates.some((d, i) => i !== idx && d === val)) {
+                            newErrors[idx] = 'This date is already selected for another slot.';
+                            setVisitDateErrors(newErrors);
+                            return;
+                          }
+
+                          if (val && usedVisitDates.includes(val)) {
+                            newErrors[idx] = 'This date was already offered before — please pick a different one.';
+                            setVisitDateErrors(newErrors);
+                            return;
+                          }
+
+                          newErrors[idx] = '';
+                          setVisitDateErrors(newErrors);
+                          const newDates = [...visitDates];
+                          newDates[idx] = val;
+                          setVisitDates(newDates);
+                        }}
+                        className={`w-full px-4 py-3 border rounded-xl bg-white dark:bg-slate-900 focus:ring-2 outline-none ${
+                          visitDateErrors[idx] ? 'border-red-400 focus:ring-red-400' : 'border-slate-200 dark:border-slate-600 focus:ring-[#2563EB]'
+                        }`}
+                      />
+                      {visitDateErrors[idx] && (
+                        <p className="text-[11px] text-red-500 font-semibold mt-1 flex items-center gap-1">
+                          <span className="material-symbols-outlined text-xs">error</span>
+                          {visitDateErrors[idx]}
+                        </p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <button
+                onClick={handleSubmitVisitDates}
+                disabled={!canSubmitVisitDates || submitting}
+                className={`w-full mt-6 py-4 rounded-xl font-bold transition-all flex items-center justify-center gap-2 ${
+                  canSubmitVisitDates && !submitting
+                    ? 'bg-[#2563EB] text-white shadow-xl shadow-blue-500/30 hover:bg-[#1E3A8A]'
+                    : 'bg-slate-100 text-slate-300 cursor-not-allowed'
+                }`}
+              >
+                {submitting ? (
+                  <>
+                    <span className="animate-spin border-2 border-white/30 border-t-white rounded-full size-4"></span>
+                    Submitting...
+                  </>
+                ) : (
+                  <>Submit Preferred Dates</>
+                )}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {viewingStage === null && application?.stage === 2 && currentStatus === 'self_assessment_completed' && !application.visitData && !!application.loiData?.preferredVisitDates?.length && (
           <div className="bg-white dark:bg-slate-800 rounded-3xl p-6 md:p-8 shadow-lg border border-slate-200 dark:border-slate-700 text-center">
             <div className="size-16 bg-amber-100 dark:bg-amber-900/30 rounded-full flex items-center justify-center mx-auto mb-4">
               <span className="material-symbols-outlined text-3xl text-amber-500">schedule</span>
             </div>
             <h2 className="text-2xl font-bold text-slate-800 dark:text-white mb-2">Awaiting Site Visit Schedule</h2>
             <p className="text-slate-500 dark:text-slate-400 max-w-md mx-auto">
-              PAHA is reviewing your application. You will be notified once a site visit schedule has been confirmed.
+              PAHA is reviewing your preferred dates. You will be notified once a site visit schedule has been confirmed.
             </p>
           </div>
         )}
 
-        {viewingStage === null && application?.visitData && !application.visitData.completedAt && !hasVisited && (
+        {viewingStage === null && currentStatus === 'visit_date_proposed' && application?.visitData?.adminProposedDate && (
+          <div className="space-y-6">
+            <div className="bg-white dark:bg-slate-800 rounded-3xl p-6 md:p-8 shadow-lg border border-amber-200 dark:border-amber-700">
+              <h2 className="text-xl font-bold text-slate-800 dark:text-white mb-2 flex items-center gap-2">
+                <span className="material-symbols-outlined text-amber-500">event</span>
+                New Site Visit Date Proposed
+              </h2>
+              <p className="text-slate-500 dark:text-slate-400 mb-4 text-sm">
+                None of your preferred dates worked for the PAHA inspector. Please review and respond to the date below.
+              </p>
+              <div className="bg-amber-50 dark:bg-amber-900/20 rounded-2xl p-6 border border-amber-200 dark:border-amber-800 text-center mb-6">
+                <p className="text-xs font-bold text-amber-600 uppercase tracking-widest mb-1">Proposed Date</p>
+                <p className="text-2xl font-bold text-slate-800 dark:text-white">
+                  {new Date(application.visitData.adminProposedDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+                </p>
+              </div>
+              {!(showDateProposalDeclined || application.visitData?.proposalDeclinedAt) ? (
+                <div className="flex gap-3">
+                  <button
+                    onClick={handleAcceptProposedDate}
+                    disabled={submitting}
+                    className="flex-1 py-3 rounded-xl bg-emerald-500 text-white font-bold text-sm hover:bg-emerald-600 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    <span className="material-symbols-outlined text-base">check_circle</span>
+                    Accept This Date
+                  </button>
+                  <button
+                    onClick={handleDeclineProposedDate}
+                    disabled={submitting}
+                    className="flex-1 py-3 rounded-xl border border-rose-200 dark:border-rose-700 text-rose-600 dark:text-rose-300 font-bold text-sm hover:bg-rose-50 dark:hover:bg-rose-900/20 transition-colors disabled:opacity-50"
+                  >
+                    I'm Unavailable
+                  </button>
+                </div>
+              ) : (
+                <div className="p-4 bg-rose-50 dark:bg-rose-900/20 border border-rose-200 dark:border-rose-800 rounded-xl flex items-start gap-3">
+                  <span className="material-symbols-outlined text-rose-500 shrink-0">chat</span>
+                  <p className="text-sm text-rose-700 dark:text-rose-300 font-semibold">
+                    Message the Admin via Chatbox for rescheduling the visitation — use the chat button in the bottom-right corner to coordinate a new date directly with PAHA.
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {viewingStage === null && application?.visitData?.scheduledDate && !application.visitData.completedAt && !hasVisited && (
           <div className="space-y-6">
             <div className="bg-white dark:bg-slate-800 rounded-3xl p-6 md:p-8 shadow-lg border border-slate-200 dark:border-slate-700">
               <h2 className="text-xl font-bold text-slate-800 dark:text-white mb-4 flex items-center gap-2">
@@ -1413,28 +1867,70 @@ const [loiPdfUploading, setLoiPdfUploading] = useState(false);
               ) : (
                 <div className="rounded-2xl border-2 border-rose-300 dark:border-rose-700 bg-rose-50/50 dark:bg-rose-900/10 p-5 space-y-4">
                   <p className="text-sm font-bold text-rose-700 dark:text-rose-300">Preferred Revisit Dates (3 required)</p>
+                  <p className="text-[11px] text-rose-500 dark:text-rose-400">Dates already offered in a previous round can't be reused — pick 3 fresh dates.</p>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                    {revisitDates.map((date, idx) => (
-                      <div key={idx}>
-                        <label htmlFor={`pipeline-revisit-date-${idx}`} className="text-[10px] font-bold text-rose-600 dark:text-rose-400 uppercase tracking-widest block mb-1">Date {idx + 1}</label>
-                        <input
-                          id={`pipeline-revisit-date-${idx}`}
-                          type="date"
-                          value={date}
-                          min={todayStr}
-                          onChange={e => {
-                            const next = [...revisitDates];
-                            next[idx] = e.target.value;
-                            setRevisitDates(next);
-                          }}
-                          className="w-full px-4 py-3 rounded-xl border border-rose-200 dark:border-rose-700 bg-white dark:bg-slate-900 text-sm text-slate-900 dark:text-white focus:ring-2 focus:ring-rose-400/40 outline-none"
-                        />
-                      </div>
-                    ))}
+                    {revisitDates.map((date, idx) => {
+                      const errorMsg = revisitDateErrors[idx];
+                      return (
+                        <div key={idx}>
+                          <label htmlFor={`pipeline-revisit-date-${idx}`} className="text-[10px] font-bold text-rose-600 dark:text-rose-400 uppercase tracking-widest block mb-1">Date {idx + 1}</label>
+                          <input
+                            id={`pipeline-revisit-date-${idx}`}
+                            type="date"
+                            value={date}
+                            min={minVisitDateStr}
+                            onChange={e => {
+                              const val = e.target.value;
+                              const newErrors = [...revisitDateErrors];
+                              // The native date picker can't grey out individual
+                              // days, so reject an already-used/duplicate date
+                              // right here — the field snaps back to its last
+                              // valid value instead of letting the bad pick stick.
+                              if (val && val <= todayStr) {
+                                newErrors[idx] = 'Today or past dates cannot be selected.';
+                                setRevisitDateErrors(newErrors);
+                                return;
+                              }
+                              if (val && usedVisitDates.includes(val)) {
+                                newErrors[idx] = 'Already used in a previous round — pick a different date.';
+                                setRevisitDateErrors(newErrors);
+                                return;
+                              }
+                              if (val && revisitDates.some((d, i) => i !== idx && d === val)) {
+                                newErrors[idx] = 'Already picked for another slot.';
+                                setRevisitDateErrors(newErrors);
+                                return;
+                              }
+                              newErrors[idx] = '';
+                              setRevisitDateErrors(newErrors);
+                              const next = [...revisitDates];
+                              next[idx] = val;
+                              setRevisitDates(next);
+                            }}
+                            className={`w-full px-4 py-3 rounded-xl border bg-white dark:bg-slate-900 text-sm text-slate-900 dark:text-white focus:ring-2 outline-none ${errorMsg ? 'border-red-400 focus:ring-red-400' : 'border-rose-200 dark:border-rose-700 focus:ring-rose-400/40'}`}
+                          />
+                          {errorMsg && (
+                            <p className="text-[11px] text-red-500 font-semibold mt-1 flex items-center gap-1">
+                              <span className="material-symbols-outlined text-xs">error</span>
+                              {errorMsg}
+                            </p>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                   <div className="flex gap-2">
-                    <button onClick={() => { setShowRevisitDateInput(false); setRevisitDates(['', '', '']); }} className="flex-1 py-3 text-xs font-bold rounded-xl border border-rose-200 dark:border-rose-700 text-rose-600 dark:text-rose-300 hover:bg-rose-100/50 dark:hover:bg-rose-900/20 transition-colors">Cancel</button>
-                    <button onClick={handleRequestRevisit} disabled={revisitDates.filter(d => d).length !== 3 || submitting} className="flex-1 py-3 text-xs font-bold rounded-xl bg-rose-600 text-white hover:bg-rose-700 transition-colors disabled:opacity-40">
+                    <button onClick={() => { setShowRevisitDateInput(false); setRevisitDates(['', '', '']); setRevisitDateErrors(['', '', '']); }} className="flex-1 py-3 text-xs font-bold rounded-xl border border-rose-200 dark:border-rose-700 text-rose-600 dark:text-rose-300 hover:bg-rose-100/50 dark:hover:bg-rose-900/20 transition-colors">Cancel</button>
+                    <button
+                      onClick={handleRequestRevisit}
+                      disabled={
+                        revisitDates.filter(d => d).length !== 3 ||
+                        submitting ||
+                        revisitDates.some(d => d && usedVisitDates.includes(d)) ||
+                        new Set(revisitDates.filter(d => d)).size !== revisitDates.filter(d => d).length
+                      }
+                      className="flex-1 py-3 text-xs font-bold rounded-xl bg-rose-600 text-white hover:bg-rose-700 transition-colors disabled:opacity-40"
+                    >
                       {submitting ? 'Submitting...' : 'Confirm Request'}
                     </button>
                   </div>
@@ -1513,7 +2009,7 @@ const [loiPdfUploading, setLoiPdfUploading] = useState(false);
           </div>
         )}
 
-        {viewingStage === null && application?.stage === 2 && (currentStatus === 'intent_submitted' || currentStatus === 'intent_resubmitted' || currentStatus === 'loi_approved' || currentStatus === 'self_assessment_completed') && !application.visitData && (() => {
+        {viewingStage === null && application?.stage === 2 && (currentStatus === 'intent_submitted' || currentStatus === 'intent_resubmitted' || currentStatus === 'loi_approved') && !application.visitData && (() => {
           // Compute overall progress
           const allItems = ASSESSMENT_CATEGORIES.flatMap(cat =>
             cat.items ? cat.items : cat.subCategories?.flatMap(s => s.items) ?? []
@@ -1523,12 +2019,13 @@ const [loiPdfUploading, setLoiPdfUploading] = useState(false);
           const overallPct = totalItems > 0 ? Math.round((checkedCount / totalItems) * 100) : 0;
           const passedCategories = Object.values(categoryStats).filter(s => s.passed).length;
           const totalCategories = Object.keys(categoryStats).length;
-          const isSubmitted = currentStatus === 'self_assessment_completed';
           // Locked until admin approves the Letter of Intent — checking items
           // before that point isn't meaningful since the application hasn't
-          // even been accepted for a site visit yet.
+          // even been accepted for a site visit yet. This block only ever
+          // renders pre-submission — retaking an already-submitted self-assessment
+          // happens inline in the Stage 2 review panel instead (viewingStage === 2).
           const isLocked = currentStatus === 'intent_submitted' || currentStatus === 'intent_resubmitted';
-          const isReadOnly = isSubmitted || isLocked;
+          const isReadOnly = isLocked;
 
           return (
             <div className="space-y-4">
@@ -1545,12 +2042,6 @@ const [loiPdfUploading, setLoiPdfUploading] = useState(false);
                       Check all items your clinic currently meets. Required items are marked <span className="text-red-300 font-bold">*</span>.
                     </p>
                   </div>
-                  {isSubmitted && (
-                    <div className="flex items-center gap-2 bg-emerald-500/20 border border-emerald-400/30 text-emerald-300 px-4 py-2 rounded-xl text-sm font-bold">
-                      <span className="material-symbols-outlined text-base">check_circle</span>
-                      Submitted
-                    </div>
-                  )}
                   {isLocked && (
                     <div className="flex items-center gap-2 bg-amber-500/20 border border-amber-400/30 text-amber-300 px-4 py-2 rounded-xl text-sm font-bold">
                       <span className="material-symbols-outlined text-base">lock</span>
@@ -1630,7 +2121,7 @@ const [loiPdfUploading, setLoiPdfUploading] = useState(false);
         })()}
 
 
-        {viewingStage === null && (currentStatus === 'for_compliance_submission' || currentStatus === 'needs_compliance' || currentStatus === 'under_review' || (hasVisited && (currentStatus === 'for_site_visit' || currentStatus === 'inspection_completed'))) && (
+        {(viewingStage === 4 || (viewingStage === null && (currentStatus === 'for_compliance_submission' || (hasVisited && (currentStatus === 'for_site_visit' || currentStatus === 'inspection_completed'))))) && (
           <div className="space-y-6">
             <div className="bg-white dark:bg-slate-800 rounded-3xl p-6 md:p-8 shadow-lg border border-slate-200 dark:border-slate-700">
               <h2 className="text-2xl font-bold text-[#1E3A8A] dark:text-white mb-2 flex items-center gap-2">
@@ -1762,26 +2253,6 @@ const [loiPdfUploading, setLoiPdfUploading] = useState(false);
                 )}
               </div>
 
-              {currentStatus === 'needs_compliance' && (
-                <div className="mt-6 p-4 bg-red-50 dark:bg-red-900/20 rounded-xl border border-red-200 dark:border-red-800 flex items-start gap-3">
-                  <span className="material-symbols-outlined text-xl text-red-500 shrink-0">error</span>
-                  <div>
-                    <p className="font-bold text-red-700 dark:text-red-300 text-sm">Application Declined</p>
-                    <p className="text-xs text-red-600 dark:text-red-400 mt-0.5">
-                      {(application as any)?.complianceRejectionReason || 'Please contact PAHA for details on next steps.'}
-                    </p>
-                  </div>
-                </div>
-              )}
-
-              {currentStatus === 'under_review' && (
-                <div className="mt-6 p-4 bg-purple-50 dark:bg-purple-900/20 rounded-xl border border-purple-200 dark:border-purple-800 text-center">
-                  <span className="material-symbols-outlined text-2xl text-purple-500 mb-2 block">hourglass_empty</span>
-                  <p className="font-bold text-purple-700 dark:text-purple-300">Under Admin Review</p>
-                  <p className="text-sm text-purple-600 dark:text-purple-400">PAHA is finalizing your accreditation review. You will be notified of the result.</p>
-                </div>
-              )}
-
               {latestVef && currentStatus !== 'under_review' && currentStatus !== 'needs_compliance' && (() => {
                 // A failed site visit must never proceed forward — only a
                 // PASSED result unlocks moving on to admin review.
@@ -1815,6 +2286,48 @@ const [loiPdfUploading, setLoiPdfUploading] = useState(false);
                 );
               })()}
             </div>
+          </div>
+        )}
+
+        {(viewingStage === 5 || (viewingStage === null && (currentStatus === 'under_review' || currentStatus === 'needs_compliance'))) && (
+          <div className="space-y-6">
+            {currentStatus === 'needs_compliance' ? (
+              <div className="bg-white dark:bg-slate-800 rounded-3xl p-6 md:p-8 shadow-lg border border-slate-200 dark:border-slate-700">
+                <h2 className="text-2xl font-bold text-[#1E3A8A] dark:text-white mb-6 flex items-center gap-2">
+                  <span className="material-symbols-outlined text-[#2563EB]">rate_review</span>
+                  Stage 5: Admin Review
+                </h2>
+                <div className="p-4 bg-red-50 dark:bg-red-900/20 rounded-xl border border-red-200 dark:border-red-800 space-y-3">
+                  <div className="flex items-start gap-3">
+                    <span className="material-symbols-outlined text-xl text-red-500 shrink-0">error</span>
+                    <div>
+                      <p className="font-bold text-red-700 dark:text-red-300 text-sm">Application Declined</p>
+                      <p className="text-xs text-red-600 dark:text-red-400 mt-0.5">
+                        {(application as any)?.complianceRejectionReason || 'Please contact PAHA for details on next steps.'}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={handleResubmitFinalReview}
+                    disabled={submitting}
+                    className="w-full py-3 rounded-xl bg-red-600 text-white text-xs font-bold uppercase tracking-wider hover:bg-red-700 transition-all shadow-sm flex items-center justify-center gap-2 disabled:opacity-50"
+                  >
+                    <span className="material-symbols-outlined text-base">refresh</span>
+                    {submitting ? 'Resubmitting...' : 'Resubmit Application'}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="bg-white dark:bg-slate-800 rounded-3xl p-6 md:p-8 shadow-lg border border-slate-200 dark:border-slate-700 text-center">
+                <div className="size-16 bg-purple-100 dark:bg-purple-900/30 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <span className="material-symbols-outlined text-3xl text-purple-500">hourglass_empty</span>
+                </div>
+                <h2 className="text-2xl font-bold text-[#1E3A8A] dark:text-white mb-2">Stage 5: Admin Review</h2>
+                <p className="text-slate-500 dark:text-slate-400 max-w-md mx-auto">
+                  PAHA is finalizing your accreditation review. You will be notified once a decision has been made — no further action is needed from you here.
+                </p>
+              </div>
+            )}
           </div>
         )}
 

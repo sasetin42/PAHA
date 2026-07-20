@@ -2,10 +2,12 @@ import React, { useEffect, useRef, useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useAppearance } from '../hooks/useAppearance';
 import { createPaycoolsPayment } from '../services/paycoolsService';
 import { db, storage } from '../config/firebase';
 import { doc, setDoc, getDoc, serverTimestamp, collection, getDocs, query, where, orderBy, limit, onSnapshot, updateDoc } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { notifyAdmin } from '../utils/notify';
 
 type Step = 1 | 2;
 type PayOption = 'Pay Now' | 'Manual Payment';
@@ -43,8 +45,23 @@ const formatPHMobile = (num: string): string => {
     return cleaned;
 };
 
+const sexDetails: Record<string, { icon: string; bgClass: string }> = {
+    'Male': { icon: 'male', bgClass: 'bg-blue-50 text-blue-500 border-blue-100' },
+    'Female': { icon: 'female', bgClass: 'bg-rose-50 text-rose-500 border-rose-100' }
+};
+
+const MONTHS = [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'
+];
+
+const startYear = 1930;
+const endYear = new Date().getFullYear();
+const YEARS = Array.from({ length: endYear - startYear + 1 }, (_, i) => endYear - i);
+
 const PaymentPage: React.FC = () => {
     const { user, profile, loading: authLoading } = useAuth();
+    const { loadingLogoUrl, logoUrl } = useAppearance();
     const navigate = useNavigate();
     const [searchParams] = useSearchParams();
 
@@ -78,6 +95,50 @@ const PaymentPage: React.FC = () => {
     const [photo, setPhoto] = useState<File | null>(null);
     const [photoPreview, setPhotoPreview] = useState('');
     const photoRef = useRef<HTMLInputElement>(null);
+    
+    const [isSexOpen, setIsSexOpen] = useState(false);
+    const sexDropdownRef = useRef<HTMLDivElement>(null);
+
+    const [isCalendarOpen, setIsCalendarOpen] = useState(false);
+    const [currentMonth, setCurrentMonth] = useState(new Date().getMonth());
+    const [currentYear, setCurrentYear] = useState(new Date().getFullYear() - 30);
+    const calendarDropdownRef = useRef<HTMLDivElement>(null);
+
+    const [isMonthPickerOpen, setIsMonthPickerOpen] = useState(false);
+    const [isYearPickerOpen, setIsYearPickerOpen] = useState(false);
+    const monthDropdownRef = useRef<HTMLDivElement>(null);
+    const yearDropdownRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (sexDropdownRef.current && !sexDropdownRef.current.contains(event.target as Node)) {
+                setIsSexOpen(false);
+            }
+            if (calendarDropdownRef.current && !calendarDropdownRef.current.contains(event.target as Node)) {
+                setIsCalendarOpen(false);
+            }
+            if (monthDropdownRef.current && !monthDropdownRef.current.contains(event.target as Node)) {
+                setIsMonthPickerOpen(false);
+            }
+            if (yearDropdownRef.current && !yearDropdownRef.current.contains(event.target as Node)) {
+                setIsYearPickerOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => {
+            document.removeEventListener('mousedown', handleClickOutside);
+        };
+    }, []);
+
+    useEffect(() => {
+        if (birthdate) {
+            const d = new Date(birthdate);
+            if (!isNaN(d.getTime())) {
+                setCurrentMonth(d.getMonth());
+                setCurrentYear(d.getFullYear());
+            }
+        }
+    }, [birthdate]);
 
     // Step 2 — Payment
     const [payOption, setPayOption] = useState<PayOption>('Pay Now');
@@ -228,10 +289,20 @@ const PaymentPage: React.FC = () => {
         setPrcLicense(profile.prcLicense || profile.prcLicenseNo || '');
         setBirthdate(profile.birthdate || '');
         setSex(profile.sex || '');
-        setFullName(profile.fullName || profile.displayName || '');
+        setFullName(profile.ownerName || profile.fullName || profile.displayName || '');
         const digits = (profile.phone || profile.mobile || '').replace(/\D/g, '');
-        const last10 = digits.slice(-10);
-        const loadedMobile = last10.length === 10 && last10.startsWith('9') ? '0' + last10 : last10;
+        let loadedMobile = digits;
+        // Handle E.164 format (+63xxxxxxxxx) or similar
+        if (loadedMobile.startsWith('63') && loadedMobile.length >= 11) {
+            loadedMobile = '0' + loadedMobile.slice(2);
+        } else if (loadedMobile.length === 10) {
+            // 10-digit number without leading 0 (old incorrect format)
+            loadedMobile = '0' + loadedMobile;
+        }
+        // Ensure max 11 digits
+        if (loadedMobile.length > 11) {
+            loadedMobile = loadedMobile.slice(-11);
+        }
         setMobile(loadedMobile);
         if (profile.photoUrl) {
             setPhotoPreview(profile.photoUrl);
@@ -266,6 +337,13 @@ const PaymentPage: React.FC = () => {
         if (authLoading) return;
         if (!user) { navigate('/login?next=/membership/payment'); return; }
         if (!user.emailVerified) { navigate('/login?next=/membership/payment'); return; }
+        // The checks below (already-paid membership redirect, pending manual
+        // membership payment) only apply to the MEMBERSHIP payment flow. For
+        // accreditation payments, hasPaid === true is the normal/expected state
+        // (you must already be a paid member to reach accreditation payment),
+        // so applying them here was bouncing every accreditation visitor
+        // straight back to the dashboard before the page ever loaded.
+        if (paymentType === 'accreditation') { setChecking(false); return; }
         (async () => {
             try {
                 const snap = await getDoc(doc(db, 'users', user.uid));
@@ -295,7 +373,7 @@ const PaymentPage: React.FC = () => {
                 setChecking(false);
             }
         })();
-    }, [user, authLoading, navigate]);
+    }, [user, authLoading, navigate, paymentType]);
 
     const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
@@ -633,7 +711,7 @@ const PaymentPage: React.FC = () => {
                             paymentReference: paymentReference || null,
                             paymentOption: payOption,
                             paymentMethod: payOption === 'Pay Now' ? selectedChannelCode : 'manual',
-                            paymentStatus: payOption === 'Pay Now' ? 'paid' : 'pending_manual'
+                            paymentStatus: payOption === 'Pay Now' ? 'pending_payment' : 'pending_manual'
                         });
                     }
                 } catch (err) {
@@ -641,6 +719,12 @@ const PaymentPage: React.FC = () => {
                 }
 
                 if (payOption === 'Manual Payment') {
+                    notifyAdmin({
+                        type: 'application',
+                        title: 'Payment Proof Submitted',
+                        body: `${fullName || user.email} submitted proof of manual payment for membership (₱${total.toLocaleString()}).`,
+                        link: 'applications',
+                    });
                     navigate(`/membership/payment/pending?orderId=${orderId}`);
                     return;
                 }
@@ -684,8 +768,31 @@ const PaymentPage: React.FC = () => {
 
     if (checking || authLoading) {
         return (
-            <div className="min-h-screen flex items-center justify-center bg-[#0A0F1A]">
-                <div className="w-12 h-12 border-4 border-primary/20 border-t-primary rounded-full animate-spin" />
+            <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50 dark:bg-[#0F172A] p-4 transition-colors duration-300">
+                <div className="flex flex-col items-center max-w-lg w-full text-center space-y-6">
+                    {/* Logo Section without background box and with modern breathing animation */}
+                    <div className="relative flex items-center justify-center">
+                        <img 
+                            src={loadingLogoUrl || logoUrl || "/paha-logo.png"} 
+                            alt="PAHA Logo" 
+                            loading="eager"
+                            fetchPriority="high"
+                            className="h-36 md:h-40 w-auto object-contain animate-logo-float" 
+                        />
+                    </div>
+
+                    {/* Progress Indicator */}
+                    <div className="flex flex-col items-center space-y-4">
+                        <div className="flex gap-2.5 justify-center items-center h-6">
+                            <span className="w-3 h-3 bg-primary rounded-full animate-modern-dot" style={{ animationDelay: '0ms' }}></span>
+                            <span className="w-3 h-3 bg-primary rounded-full animate-modern-dot" style={{ animationDelay: '200ms' }}></span>
+                            <span className="w-3 h-3 bg-primary rounded-full animate-modern-dot" style={{ animationDelay: '400ms' }}></span>
+                        </div>
+                        <p className="text-[10px] sm:text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-[0.2em] sm:tracking-[0.25em] whitespace-nowrap overflow-hidden text-ellipsis select-none">
+                            PAHA - Philippines Animal Hospital Association
+                        </p>
+                    </div>
+                </div>
             </div>
         );
     }
@@ -838,7 +945,7 @@ const PaymentPage: React.FC = () => {
                                                 <div>
                                                     <div className="text-[7px] opacity-60 uppercase tracking-widest leading-none mb-0.5">Member Name</div>
                                                     <div className="text-xs font-black tracking-wide leading-tight truncate">
-                                                        {fullName || profile?.fullName || profile?.displayName || 'Your Name'}
+                                                        {profile?.ownerName || fullName || profile?.fullName || profile?.displayName || 'Your Name'}
                                                     </div>
                                                 </div>
 <div>
@@ -850,7 +957,7 @@ const PaymentPage: React.FC = () => {
 <div>
     <div className="text-[7px] opacity-60 uppercase tracking-widest leading-none mb-0.5">Mobile</div>
     <div className="font-bold text-[10px] leading-tight truncate">
-        {formatPHMobile(mobile || profile?.phone || profile?.mobile || '') || '—'}
+        {formatPHMobile(profile?.phone || profile?.mobile || mobile || '') || '—'}
     </div>
 </div>
                                             </div>
@@ -861,9 +968,9 @@ const PaymentPage: React.FC = () => {
                                                 <p className="text-[7px] opacity-60 uppercase tracking-wider mb-0.5">Valid Until</p>
                                                 <p className="text-[10px] font-semibold">{liveUserMembershipDuration} {liveUserMembershipDuration === 1 ? 'year' : 'years'} from payment date</p>
                                             </div>
-                                            <div className="px-2 py-0.5 rounded bg-white/20 text-[8px] font-black uppercase tracking-wider">
-                                                Regular
-                                            </div>
+<div className="px-2 py-0.5 rounded bg-white/20 text-[8px] font-black uppercase tracking-wider">
+                                                    {profile?.membershipType || profile?.type || 'Regular'}
+                                                </div>
                                         </div>
                                     </div>
                                 </div>
@@ -1038,7 +1145,12 @@ const PaymentPage: React.FC = () => {
 
                                 {/* Personal Details & Profile Photo */}
                                 <div className="bg-white dark:bg-[#0F172A] rounded-2xl border border-slate-200 dark:border-white/5 p-6 shadow-sm">
-                                    <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400 dark:text-white/30 mb-4">Personal Details</p>
+                                    <div className="flex items-center gap-2 mb-5">
+                                        <div className="w-8 h-8 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-500">
+                                            <span className="material-symbols-outlined text-base">person</span>
+                                        </div>
+                                        <p className="text-xs font-black uppercase tracking-[0.2em] text-slate-700 dark:text-slate-200">Personal Details</p>
+                                    </div>
                                     
                                     <div className="flex flex-col md:flex-row gap-6">
                                         {/* Profile Photo upload block */}
@@ -1071,17 +1183,279 @@ const PaymentPage: React.FC = () => {
 
                                         {/* Form Details */}
                                         <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                            <div>
-                                                <label htmlFor="birthdate" className={labelCls}>Date of Birth <span className="text-red-500">*</span></label>
-                                                <input id="birthdate" name="birthdate" type="date" value={birthdate} onChange={e => setBirthdate(e.target.value)} className={inputCls} />
-                                            </div>
-                                            <div>
+                                             <div className="relative" ref={calendarDropdownRef}>
+                                                 <label htmlFor="birthdate" className={labelCls}>Date of Birth <span className="text-red-500">*</span></label>
+                                                 <button
+                                                     id="birthdate"
+                                                     type="button"
+                                                     className={`${inputCls} flex items-center justify-between cursor-pointer text-left transition-all mt-1.5 ${
+                                                         !birthdate ? 'text-slate-400 font-normal' : 'text-slate-800 font-semibold dark:text-white'
+                                                     }`}
+                                                     onClick={() => setIsCalendarOpen(!isCalendarOpen)}
+                                                 >
+                                                     <div className="flex items-center gap-2.5">
+                                                         <span className={`w-6 h-6 rounded-lg flex items-center justify-center text-xs border ${
+                                                             birthdate ? 'bg-primary/5 text-primary border-primary/20' : 'bg-slate-50 text-slate-400 border-slate-100'
+                                                         }`}>
+                                                             <span className="material-symbols-outlined text-[14px]">calendar_today</span>
+                                                         </span>
+                                                         <span>
+                                                             {birthdate 
+                                                                 ? new Date(birthdate).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }) 
+                                                                 : 'mm/dd/yyyy'
+                                                             }
+                                                         </span>
+                                                     </div>
+                                                     <span className={`material-symbols-outlined transition-transform duration-300 text-slate-400 ${isCalendarOpen ? 'text-primary' : ''}`}>
+                                                         calendar_month
+                                                     </span>
+                                                 </button>
+                                                 
+                                                 <div className={`absolute left-0 mt-2 bg-white border border-slate-100 rounded-2xl shadow-2xl z-[9999] p-4 w-72 transition-all duration-300 origin-top ${
+                                                     isCalendarOpen 
+                                                         ? 'opacity-100 translate-y-0 scale-100 pointer-events-auto' 
+                                                         : 'opacity-0 -translate-y-2 scale-95 pointer-events-none'
+                                                 }`}>
+                                                     {/* Calendar Header */}
+                                                     <div className="flex items-center justify-between mb-4">
+                                                         <button 
+                                                             type="button" 
+                                                             onClick={() => {
+                                                                 if (currentMonth === 0) {
+                                                                     setCurrentMonth(11);
+                                                                     setCurrentYear(y => y - 1);
+                                                                 } else {
+                                                                     setCurrentMonth(m => m - 1);
+                                                                 }
+                                                             }}
+                                                             className="p-1.5 hover:bg-slate-50 rounded-lg text-slate-500 hover:text-slate-800 transition-colors"
+                                                         >
+                                                             <span className="material-symbols-outlined text-sm font-bold">chevron_left</span>
+                                                         </button>
+
+                                                         <div className="flex gap-2">
+                                                             {/* Month Selector */}
+                                                             <div className="relative" ref={monthDropdownRef}>
+                                                                 <button
+                                                                     type="button"
+                                                                     className="w-28 px-3 py-1.5 text-xs font-bold text-slate-700 bg-slate-50 hover:bg-slate-100 border border-slate-200/60 rounded-xl flex items-center justify-between transition-all select-none cursor-pointer"
+                                                                     onClick={() => {
+                                                                         setIsMonthPickerOpen(!isMonthPickerOpen);
+                                                                         setIsYearPickerOpen(false);
+                                                                     }}
+                                                                 >
+                                                                     <span>{MONTHS[currentMonth]}</span>
+                                                                     <span className={`material-symbols-outlined text-[16px] text-slate-400 transition-transform duration-200 ${isMonthPickerOpen ? 'rotate-180 text-primary' : ''}`}>
+                                                                         keyboard_arrow_down
+                                                                     </span>
+                                                                 </button>
+                                                                 
+                                                                 <div className={`absolute left-0 mt-1 bg-white border border-slate-100 rounded-xl shadow-2xl z-[10005] max-h-48 overflow-y-auto w-full transition-all duration-200 origin-top ${
+                                                                     isMonthPickerOpen 
+                                                                         ? 'opacity-100 translate-y-0 scale-100 pointer-events-auto' 
+                                                                         : 'opacity-0 -translate-y-1 scale-95 pointer-events-none'
+                                                                 }`}>
+                                                                     <ul className="py-1 text-xs">
+                                                                         {MONTHS.map((m, idx) => (
+                                                                             <li key={m}>
+                                                                                 <button
+                                                                                     type="button"
+                                                                                     className={`w-full px-3 py-2 text-left transition-colors flex items-center justify-between ${
+                                                                                         currentMonth === idx 
+                                                                                             ? 'bg-primary/5 text-primary font-bold' 
+                                                                                             : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                                                                                     }`}
+                                                                                     onClick={() => {
+                                                                                         setCurrentMonth(idx);
+                                                                                         setIsMonthPickerOpen(false);
+                                                                                     }}
+                                                                                 >
+                                                                                     <span>{m}</span>
+                                                                                     {currentMonth === idx && (
+                                                                                         <span className="material-symbols-outlined text-primary text-xs font-bold">check</span>
+                                                                                     )}
+                                                                                 </button>
+                                                                             </li>
+                                                                         ))}
+                                                                     </ul>
+                                                                 </div>
+                                                             </div>
+
+                                                             {/* Year Selector */}
+                                                             <div className="relative" ref={yearDropdownRef}>
+                                                                 <button
+                                                                     type="button"
+                                                                     className="w-24 px-3 py-1.5 text-xs font-bold text-slate-700 bg-slate-50 hover:bg-slate-100 border border-slate-200/60 rounded-xl flex items-center justify-between transition-all select-none cursor-pointer"
+                                                                     onClick={() => {
+                                                                         setIsYearPickerOpen(!isYearPickerOpen);
+                                                                         setIsMonthPickerOpen(false);
+                                                                     }}
+                                                                 >
+                                                                     <span>{currentYear}</span>
+                                                                     <span className={`material-symbols-outlined text-[16px] text-slate-400 transition-transform duration-200 ${isYearPickerOpen ? 'rotate-180 text-primary' : ''}`}>
+                                                                         keyboard_arrow_down
+                                                                     </span>
+                                                                 </button>
+                                                                 
+                                                                 <div className={`absolute left-0 mt-1 bg-white border border-slate-100 rounded-xl shadow-2xl z-[10005] max-h-48 overflow-y-auto w-full transition-all duration-200 origin-top ${
+                                                                     isYearPickerOpen 
+                                                                         ? 'opacity-100 translate-y-0 scale-100 pointer-events-auto' 
+                                                                         : 'opacity-0 -translate-y-1 scale-95 pointer-events-none'
+                                                                 }`}>
+                                                                     <ul className="py-1 text-xs">
+                                                                         {YEARS.map((y) => (
+                                                                             <li key={y}>
+                                                                                 <button
+                                                                                     type="button"
+                                                                                     className={`w-full px-3 py-2 text-left transition-colors flex items-center justify-between ${
+                                                                                         currentYear === y 
+                                                                                             ? 'bg-primary/5 text-primary font-bold' 
+                                                                                             : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                                                                                     }`}
+                                                                                     onClick={() => {
+                                                                                         setCurrentYear(y);
+                                                                                         setIsYearPickerOpen(false);
+                                                                                     }}
+                                                                                 >
+                                                                                     <span>{y}</span>
+                                                                                     {currentYear === y && (
+                                                                                         <span className="material-symbols-outlined text-primary text-xs font-bold">check</span>
+                                                                                     )}
+                                                                                 </button>
+                                                                             </li>
+                                                                         ))}
+                                                                     </ul>
+                                                                 </div>
+                                                             </div>
+                                                         </div>
+
+                                                         <button 
+                                                             type="button" 
+                                                             onClick={() => {
+                                                                 if (currentMonth === 11) {
+                                                                     setCurrentMonth(0);
+                                                                     setCurrentYear(y => y + 1);
+                                                                 } else {
+                                                                     setCurrentMonth(m => m + 1);
+                                                                 }
+                                                             }}
+                                                             className="p-1.5 hover:bg-slate-50 rounded-lg text-slate-500 hover:text-slate-800 transition-colors"
+                                                         >
+                                                             <span className="material-symbols-outlined text-sm font-bold">chevron_right</span>
+                                                         </button>
+                                                     </div>
+
+                                                     <div className="text-sm font-extrabold text-slate-800 mb-3 px-1">
+                                                         {MONTHS[currentMonth]} {currentYear}
+                                                     </div>
+
+                                                     <div className="grid grid-cols-7 gap-1 text-center text-[10px] font-bold text-slate-400 mb-2">
+                                                         {['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'].map(d => (
+                                                             <div key={d} className="py-1">{d}</div>
+                                                         ))}
+                                                     </div>
+
+                                                     <div className="grid grid-cols-7 gap-1 text-center text-xs">
+                                                         {(() => {
+                                                             const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+                                                             const firstDay = new Date(currentYear, currentMonth, 1).getDay();
+                                                             const cells = [];
+                                                             
+                                                             for (let i = 0; i < firstDay; i++) {
+                                                                 cells.push(<div key={`empty-${i}`} />);
+                                                             }
+                                                             
+                                                             for (let day = 1; day <= daysInMonth; day++) {
+                                                                 const dateStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                                                                 const isSelected = birthdate === dateStr;
+                                                                 
+                                                                 cells.push(
+                                                                     <button
+                                                                         key={day}
+                                                                         type="button"
+                                                                         onClick={() => {
+                                                                             setBirthdate(dateStr);
+                                                                             setIsCalendarOpen(false);
+                                                                         }}
+                                                                         className={`py-1.5 rounded-lg font-semibold transition-all ${
+                                                                             isSelected 
+                                                                                 ? 'bg-primary text-white font-bold' 
+                                                                                 : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                                                                         }`}
+                                                                     >
+                                                                         {day}
+                                                                     </button>
+                                                                 );
+                                                             }
+                                                             return cells;
+                                                         })()}
+                                                     </div>
+                                                 </div>
+                                             </div>
+                                            <div className="relative" ref={sexDropdownRef}>
                                                 <label htmlFor="sex" className={labelCls}>Sex <span className="text-red-500">*</span></label>
-                                                <select id="sex" name="sex" value={sex} onChange={e => setSex(e.target.value)} className={inputCls + ' appearance-none'}>
-                                                    <option value="">Select</option>
-                                                    <option>Male</option>
-                                                    <option>Female</option>
-                                                </select>
+                                                <button
+                                                    id="sex"
+                                                    type="button"
+                                                    className={`${inputCls} flex items-center justify-between cursor-pointer text-left transition-all mt-1.5 ${
+                                                        !sex ? 'text-slate-400' : 'text-slate-900 font-semibold dark:text-white'
+                                                    }`}
+                                                    onClick={() => setIsSexOpen(!isSexOpen)}
+                                                >
+                                                    <div className="flex items-center gap-2.5">
+                                                        {sex && (
+                                                            <span className={`w-6 h-6 rounded-lg flex items-center justify-center text-xs border ${sexDetails[sex].bgClass}`}>
+                                                                <span className="material-symbols-outlined text-[14px]">{sexDetails[sex].icon}</span>
+                                                            </span>
+                                                        )}
+                                                        <span>{sex || 'Select'}</span>
+                                                    </div>
+                                                    <span className={`material-symbols-outlined transition-transform duration-300 text-slate-400 ${isSexOpen ? 'rotate-180 text-primary' : ''}`}>
+                                                        keyboard_arrow_down
+                                                    </span>
+                                                </button>
+                                                
+                                                <div className={`absolute left-0 right-0 mt-2 bg-white border border-slate-100 rounded-2xl shadow-2xl z-[9999] overflow-hidden transition-all duration-300 origin-top ${
+                                                    isSexOpen 
+                                                        ? 'opacity-100 translate-y-0 scale-100 pointer-events-auto' 
+                                                        : 'opacity-0 -translate-y-2 scale-95 pointer-events-none'
+                                                }`}>
+                                                    <ul className="py-1.5 text-sm max-h-60 overflow-y-auto">
+                                                        {['Male', 'Female'].map((option) => {
+                                                            const details = sexDetails[option];
+                                                            return (
+                                                                <li key={option}>
+                                                                    <button
+                                                                        type="button"
+                                                                        className={`w-full px-4 py-3 text-left transition-colors flex items-center justify-between group ${
+                                                                            sex === option 
+                                                                                ? 'bg-primary/5 text-primary font-bold' 
+                                                                                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                                                                        }`}
+                                                                        onClick={() => {
+                                                                            setSex(option);
+                                                                            setIsSexOpen(false);
+                                                                        }}
+                                                                    >
+                                                                        <div className="flex items-center gap-3">
+                                                                            <span className={`w-8 h-8 rounded-xl flex items-center justify-center border transition-colors ${
+                                                                                sex === option 
+                                                                                    ? details.bgClass 
+                                                                                    : 'bg-slate-50 text-slate-400 border-slate-100 group-hover:bg-white'
+                                                                            }`}>
+                                                                                <span className="material-symbols-outlined text-[18px]">{details.icon}</span>
+                                                                            </span>
+                                                                            <span>{option}</span>
+                                                                        </div>
+                                                                        {sex === option && (
+                                                                            <span className="material-symbols-outlined text-primary text-base font-bold">check</span>
+                                                                        )}
+                                                                    </button>
+                                                                </li>
+                                                            );
+                                                        })}
+                                                    </ul>
+                                                </div>
                                             </div>
                                             <div className="sm:col-span-2">
                                                 <label htmlFor="mobile" className={labelCls}>Personal Mobile No. <span className="text-red-500">*</span></label>
@@ -1121,38 +1495,66 @@ const PaymentPage: React.FC = () => {
                                 </div>
 
                                 {/* Account & License */}
-                                <div className="bg-white dark:bg-[#0F172A] rounded-2xl border border-slate-200 dark:border-white/5 p-5 shadow-sm">
-                                    <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400 dark:text-white/30 mb-4">Account & License</p>
-                                    <div className="space-y-4">
-                                        <div>
-                                            <label htmlFor="email" className={labelCls}>Email Address</label>
-                                            <div className="relative">
-                                                <input id="email" name="email" type="email" value={user?.email || ''} readOnly
-                                                    className={inputCls + ' bg-slate-50 dark:bg-white/[0.03] text-slate-400 cursor-not-allowed pr-10'} />
-                                                <span className="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 text-slate-300 text-base">lock</span>
-                                            </div>
-                                        </div>
-                                        <div>
-                                            <label htmlFor="emailConfirm" className={labelCls}>Confirm Email Address <span className="text-red-500">*</span></label>
-                                            <input id="emailConfirm" name="emailConfirm" type="email" value={emailConfirm} onChange={e => setEmailConfirm(e.target.value)}
-                                                className={inputCls} placeholder="Re-enter your email address" />
-                                        </div>
-                                        <div>
-                                            <label htmlFor="prcLicense" className={labelCls}>PRC License No. <span className="text-red-500">*</span></label>
-                                            <input id="prcLicense" name="prcLicense" type="text" value={prcLicense} onChange={e => setPrcLicense(e.target.value)}
-                                                className={inputCls} placeholder="e.g. 0012345" />
-                                        </div>
-                                    </div>
-                                </div>
+                                 <div className="bg-white dark:bg-[#0F172A] rounded-2xl border border-slate-200 dark:border-white/5 p-5 shadow-sm">
+                                     <div className="flex items-center gap-2 mb-5">
+                                         <div className="w-8 h-8 rounded-xl bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-500">
+                                             <span className="material-symbols-outlined text-base">shield</span>
+                                         </div>
+                                         <p className="text-xs font-black uppercase tracking-[0.2em] text-slate-700 dark:text-slate-200">Account & License</p>
+                                     </div>
+                                     <div className="space-y-4">
+                                         <div>
+                                             <label htmlFor="email" className={labelCls}>Email Address</label>
+                                             <div className="relative mt-1.5">
+                                                 <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 select-none pointer-events-none flex items-center">
+                                                     <span className="material-symbols-outlined text-lg">mail</span>
+                                                 </div>
+                                                 <input id="email" name="email" type="email" value={user?.email || ''} readOnly
+                                                     className={`${inputCls} bg-slate-50 dark:bg-white/[0.03] text-slate-400 cursor-not-allowed pl-11 pr-10`} />
+                                                 <span className="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 text-slate-300 text-base">lock</span>
+                                             </div>
+                                         </div>
+                                         <div>
+                                             <label htmlFor="emailConfirm" className={labelCls}>Confirm Email Address <span className="text-red-500">*</span></label>
+                                             <div className="relative mt-1.5">
+                                                 <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 select-none pointer-events-none flex items-center">
+                                                     <span className="material-symbols-outlined text-lg">mail_lock</span>
+                                                 </div>
+                                                 <input id="emailConfirm" name="emailConfirm" type="email" value={emailConfirm} onChange={e => setEmailConfirm(e.target.value)}
+                                                     className={`${inputCls} pl-11`} placeholder="Re-enter your email address" />
+                                             </div>
+                                         </div>
+                                         <div>
+                                             <label htmlFor="prcLicense" className={labelCls}>PRC License No. <span className="text-red-500">*</span></label>
+                                             <div className="relative mt-1.5">
+                                                 <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 select-none pointer-events-none flex items-center">
+                                                     <span className="material-symbols-outlined text-lg">workspace_premium</span>
+                                                 </div>
+                                                 <input id="prcLicense" name="prcLicense" type="text" value={prcLicense} onChange={e => setPrcLicense(e.target.value)}
+                                                     className={`${inputCls} pl-11`} placeholder="e.g. 0012345" />
+                                             </div>
+                                         </div>
+                                     </div>
+                                 </div>
 
                                 {/* Representative Name */}
-                                <div className="bg-white dark:bg-[#0F172A] rounded-2xl border border-slate-200 dark:border-white/5 p-5 shadow-sm">
-                                    <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400 dark:text-white/30 mb-4">Representative Name</p>
-                                    <div>
-                                        <label htmlFor="fullName" className={labelCls}>Representative Name <span className="text-red-500">*</span></label>
-                                        <input id="fullName" name="fullName" type="text" value={fullName} onChange={e => setFullName(e.target.value)} className={inputCls} placeholder="Enter full name" />
-                                    </div>
-                                </div>
+                                 <div className="bg-white dark:bg-[#0F172A] rounded-2xl border border-slate-200 dark:border-white/5 p-5 shadow-sm">
+                                     <div className="flex items-center gap-2 mb-5">
+                                         <div className="w-8 h-8 rounded-xl bg-violet-50 border border-violet-100 flex items-center justify-center text-violet-500">
+                                             <span className="material-symbols-outlined text-base">badge</span>
+                                         </div>
+                                         <p className="text-xs font-black uppercase tracking-[0.2em] text-slate-700 dark:text-slate-200">Representative Details</p>
+                                     </div>
+                                     <div>
+                                         <label htmlFor="fullName" className={labelCls}>Representative Name <span className="text-red-500">*</span></label>
+                                         <div className="relative mt-1.5">
+                                             <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 select-none pointer-events-none flex items-center">
+                                                 <span className="material-symbols-outlined text-lg">person_pin</span>
+                                             </div>
+                                             <input id="fullName" name="fullName" type="text" value={fullName} onChange={e => setFullName(e.target.value)} className={`${inputCls} pl-11`} placeholder="Enter full name" />
+                                         </div>
+                                     </div>
+                                 </div>
 
                                 <div className="flex justify-end pt-2">
                                     <button onClick={next}

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useAppearance } from '../hooks/useAppearance';
 import { db } from '../config/firebase';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { queryPaycoolsPayment } from '../services/paycoolsService';
@@ -9,6 +10,7 @@ const PaymentSuccess: React.FC = () => {
     const [searchParams] = useSearchParams();
     const navigate = useNavigate();
     const { user, loading: authLoading } = useAuth();
+    const { loadingLogoUrl, logoUrl } = useAppearance();
     const mchOrderId = searchParams.get('mchOrderId') || searchParams.get('orderId');
 
     const [status, setStatus] = useState<'processing' | 'success' | 'pending' | 'error'>('processing');
@@ -75,21 +77,31 @@ const PaymentSuccess: React.FC = () => {
 
     if (authLoading || status === 'processing') {
         return (
-            <div className="min-h-screen bg-slate-100 dark:bg-[#0A0F1A] flex items-center justify-center px-4 pt-24 pb-12">
-                <div className="text-center">
-                    <div className="relative w-24 h-24 mx-auto mb-6">
-                        <div className="absolute inset-0 rounded-full border-4 border-primary/20 border-t-primary animate-spin" />
-                        <div className="absolute inset-2 bg-white rounded-full flex items-center justify-center overflow-hidden shadow-inner">
-                            <img
-                                src="/paha-logo.png"
-                                alt="PAHA Logo"
-                                className="w-16 h-16 object-contain"
-                                onError={(e) => { (e.target as HTMLImageElement).src = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='48' fill='%232563EB'/><text x='50' y='58' font-family='sans-serif' font-size='20' font-weight='900' fill='white' text-anchor='middle'>PAHA</text></svg>"; }}
-                            />
-                        </div>
+            <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50 dark:bg-[#0F172A] p-4 transition-colors duration-300">
+                <div className="flex flex-col items-center max-w-lg w-full text-center space-y-6">
+                    {/* Logo Section without background box and with modern breathing animation */}
+                    <div className="relative flex items-center justify-center">
+                        <img 
+                            src={loadingLogoUrl || logoUrl || "/paha-logo.png"} 
+                            alt="PAHA Logo" 
+                            loading="eager"
+                            fetchPriority="high"
+                            className="h-36 md:h-40 w-auto object-contain animate-logo-float" 
+                        />
                     </div>
-                    <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-2">Verifying Payment</h2>
-                    <p className="text-slate-500 dark:text-slate-400">Please wait while we confirm your payment with PayCools...</p>
+
+                    {/* Progress Indicator */}
+                    <div className="flex flex-col items-center space-y-4">
+                        <div className="flex gap-2.5 justify-center items-center h-6">
+                            <span className="w-3 h-3 bg-primary rounded-full animate-modern-dot" style={{ animationDelay: '0ms' }}></span>
+                            <span className="w-3 h-3 bg-primary rounded-full animate-modern-dot" style={{ animationDelay: '200ms' }}></span>
+                            <span className="w-3 h-3 bg-primary rounded-full animate-modern-dot" style={{ animationDelay: '400ms' }}></span>
+                        </div>
+                        <h2 className="text-xl font-bold text-slate-800 dark:text-white mt-2 select-none">Verifying Payment</h2>
+                        <p className="text-[10px] sm:text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-[0.2em] sm:tracking-[0.25em] whitespace-nowrap overflow-hidden text-ellipsis select-none">
+                            Please wait while we confirm your payment with PayCools
+                        </p>
+                    </div>
                 </div>
             </div>
         );

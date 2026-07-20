@@ -12,7 +12,7 @@ const COMMITTEES = [
 ];
 
 const CommitteesManager: React.FC = () => {
-    const { committeeMembers, addCommitteeMember, updateCommitteeMember, deleteCommitteeMember, uploadImage } = useAdmin();
+    const { committeeMembers, addCommitteeMember, updateCommitteeMember, deleteCommitteeMember, uploadImage, committeeCovers, updateCommitteeCover } = useAdmin();
     const { adminRole } = useAuth();
     const canEdit = adminRole !== 'viewer';
     const [selectedCommitteeId, setSelectedCommitteeId] = useState(COMMITTEES[0].id);
@@ -20,8 +20,26 @@ const CommitteesManager: React.FC = () => {
     const [editingMember, setEditingMember] = useState<CommitteeMember | null>(null);
     const [previewImage, setPreviewImage] = useState<string>(''); // For real-time preview
     const [isUploading, setIsUploading] = useState(false);
+    const [isCoverUploading, setIsCoverUploading] = useState(false);
 
     const filteredMembers = committeeMembers.filter(m => m.committeeId === selectedCommitteeId);
+    const selectedCover = committeeCovers[selectedCommitteeId] || '';
+
+    const handleCoverFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        setIsCoverUploading(true);
+        try {
+            const url = await uploadImage(file);
+            await updateCommitteeCover(selectedCommitteeId, url);
+        } catch (error) {
+            console.error("Cover upload failed:", error);
+            alert("Cover photo upload failed.");
+        } finally {
+            setIsCoverUploading(false);
+            e.target.value = '';
+        }
+    };
 
     const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
         e.preventDefault();
@@ -111,6 +129,55 @@ const CommitteesManager: React.FC = () => {
                         {c.name}
                     </button>
                 ))}
+            </div>
+
+            {/* Committee Cover / Group Photo */}
+            <div className="bg-white dark:bg-slate-800 rounded-[10px] shadow-sm border border-slate-200 dark:border-white/5 overflow-hidden">
+                <div className="p-4 border-b border-slate-100 dark:border-white/5">
+                    <h3 className="font-semibold text-sm">Group / Cover Photo</h3>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                        A wide banner photo (e.g., a group picture of this committee) shown on the public Committees page — not a member profile picture.
+                    </p>
+                </div>
+                <div className="relative w-full aspect-[21/9] bg-slate-100 dark:bg-slate-900">
+                    {selectedCover ? (
+                        <img src={selectedCover} alt={`${selectedCommitteeId} cover`} className="w-full h-full object-cover" />
+                    ) : (
+                        <div className="w-full h-full flex flex-col items-center justify-center text-slate-400 gap-1.5">
+                            <span className="material-symbols-outlined text-3xl">panorama</span>
+                            <span className="text-xs font-semibold">No cover photo set</span>
+                        </div>
+                    )}
+                </div>
+                {canEdit && (
+                    <div className="p-4 flex items-center gap-3">
+                        <label htmlFor="cm-cover-file" className="relative inline-flex items-center gap-2 px-4 py-2 rounded-[10px] bg-primary text-white font-semibold text-sm cursor-pointer hover:bg-primary/90 transition-colors">
+                            {isCoverUploading ? (
+                                <span className="material-symbols-outlined text-lg animate-spin">progress_activity</span>
+                            ) : (
+                                <span className="material-symbols-outlined text-lg">upload_file</span>
+                            )}
+                            {selectedCover ? 'Replace Cover Photo' : 'Upload Cover Photo'}
+                            <input
+                                id="cm-cover-file"
+                                type="file"
+                                accept="image/*"
+                                onChange={handleCoverFileChange}
+                                disabled={isCoverUploading}
+                                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                            />
+                        </label>
+                        {selectedCover && (
+                            <button
+                                type="button"
+                                onClick={() => { if (confirm('Remove this committee\'s cover photo?')) updateCommitteeCover(selectedCommitteeId, ''); }}
+                                className="px-4 py-2 rounded-[10px] text-sm font-semibold text-red-500 hover:bg-red-500/10 transition-colors"
+                            >
+                                Remove
+                            </button>
+                        )}
+                    </div>
+                )}
             </div>
 
             {/* Members List */}

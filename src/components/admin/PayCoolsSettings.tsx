@@ -297,11 +297,11 @@ const PayCoolsSettings: React.FC = () => {
                     <span className="material-symbols-outlined">
                         {toast.type === 'success' ? 'check_circle' : 'error'}
                     </span>
-        {toast.message}
-        </div>
-      )}
+                    {toast.message}
+                </div>
+            )}
 
-      {/* Header Cards & Live Status */}
+            {/* Header Cards & Live Status */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-white/5 rounded-[10px] p-5 flex items-center justify-between">
                     <div className="space-y-1">

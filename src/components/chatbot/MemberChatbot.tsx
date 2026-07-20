@@ -98,7 +98,7 @@ const MemberChatbot: React.FC = () => {
     if (knowledgeBase && chatMode === 'bot' && isOpen && messages.length === 0) {
       setTimeout(() => {
         addBotMessage(
-          `Hello Dr. ${profile?.ownerName || profile?.displayName || 'Member'}! 👋\n\n` +
+          `Hello ${profile?.ownerName || profile?.displayName || 'Member'}! 👋\n\n` +
           `I'm your PAHA Virtual Assistant. I can help you with:\n\n` +
           `• Membership status and documents\n` +
           `• Accreditation progress\n` +

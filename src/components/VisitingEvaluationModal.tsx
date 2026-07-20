@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import jsPDF from 'jspdf';
 import { doc, updateDoc, addDoc, collection, serverTimestamp } from 'firebase/firestore';
-import { db, auth } from '../config/firebase';
+import { db, auth, storage } from '../config/firebase';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import type { AccreditationApplication, VisitingEvaluationForm } from '../types/accreditation';
 import { STANDARD_2026 } from '../data/accreditationStandard2026';
 import { computeOverall, sectionTotalPoints, computeGapSummary } from '../utils/evaluationScoring';
@@ -202,9 +203,23 @@ const VisitingEvaluationModal: React.FC<Props> = ({ isOpen, onClose, app, existi
 
             const createdAt = existingForm ? new Date(existingForm.createdAt) : new Date();
 
+            // Auto-generate the PDF and upload it to Storage so the member can download it
+            let pdfUrl = existingForm?.url || '';
+            let pdfFilename = existingForm?.filename || '';
+            try {
+                const pdf = buildPdfDoc(version, finalVerdict, createdAt);
+                const pdfBlob = pdf.output('blob');
+                pdfFilename = `${String(version).padStart(2, '0')}PAHA${yymmdd(createdAt)}-${sanitizeClientName(app.clinicName)}.pdf`;
+                const pdfRef = ref(storage, `accreditation/evaluations/${app.id}/${pdfFilename}`);
+                const snap = await uploadBytes(pdfRef, pdfBlob);
+                pdfUrl = await getDownloadURL(snap.ref);
+            } catch (pdfErr) {
+                console.error('Failed to auto-generate or upload evaluation PDF:', pdfErr);
+            }
+
             const newForm: VisitingEvaluationForm = {
-                ...(existingForm?.filename ? { filename: existingForm.filename } : {}),
-                ...(existingForm?.url ? { url: existingForm.url } : {}),
+                filename: pdfFilename,
+                url: pdfUrl,
                 version,
                 result: finalVerdict === 'passed' ? 'Passed' : 'Fail',
                 clinicName: app.clinicName,

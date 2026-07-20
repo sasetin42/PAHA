@@ -156,7 +156,7 @@ export const createPaycoolsPayment = onRequest({
         let cleanMobile = String(mobile || '').replace(/\D/g, '');
         const last10 = cleanMobile.slice(-10);
         if (last10.length === 10 && last10.startsWith('9')) {
-            cleanMobile = '0' + last10;
+            cleanMobile = '63' + last10;
         } else {
             res.status(400).json({ success: false, error: 'A valid Philippine mobile number starting with 09 (or +639) is required.' });
             return;

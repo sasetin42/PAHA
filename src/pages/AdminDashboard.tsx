@@ -13,12 +13,16 @@ import PartnersManager from '../components/admin/PartnersManager';
 import SettingsPanel from '../components/admin/SettingsPanel';
 import PayCoolsTransactions from '../components/admin/PayCoolsTransactions';
 import { db, auth } from '../config/firebase';
-import { doc, onSnapshot, arrayUnion, arrayRemove, collection, getDocs, getDoc, query, orderBy, setDoc, updateDoc, addDoc, serverTimestamp, deleteDoc, where } from 'firebase/firestore';
+import { doc, onSnapshot, arrayUnion, arrayRemove, collection, getDocs, getDoc, query, orderBy, setDoc, updateDoc, addDoc, serverTimestamp, deleteDoc, where, deleteField } from 'firebase/firestore';
 import { EmailAuthProvider, reauthenticateWithCredential, updatePassword } from 'firebase/auth';
 import type { AccreditationApplication, VisitingEvaluationForm } from '../types/accreditation';
-import { ASSESSMENT_CATEGORIES, getCategoryStats } from '../data/assessmentCategories';
+import { ASSESSMENT_CATEGORIES } from '../data/assessmentCategories';
 import VisitingEvaluationModal from '../components/VisitingEvaluationModal';
 import FileViewerModal, { type ViewerFile } from '../components/FileViewerModal';
+import AccreditationChecklist from '../components/AccreditationChecklist';
+import { STANDARD_2026 } from '../data/accreditationStandard2026';
+import { getMembershipDocsStatus, MEMBERSHIP_REQS_BY_BUSINESS_TYPE } from '../data/membershipRequirements';
+import { notifyMember } from '../utils/notify';
 
 
 const MEMBERSHIP_DOC_LABELS: Record<string, string> = {
@@ -93,10 +97,22 @@ const AdminDashboard: React.FC = () => {
         members: 'members',
     };
 
+    // A handful of notification titles were saved with a stale `link` value by
+    // older code (e.g. document-upload notifications used to point at 'members'
+    // instead of 'applications'). Rather than leave every already-created
+    // Firestore record pointing at the wrong tab, route by title first so
+    // both old and newly created notifications of that kind land correctly.
+    const NOTIF_TITLE_TO_TAB: Record<string, TabId> = {
+        'Membership Document Uploaded': 'applications',
+        'Payment Proof Submitted': 'applications',
+        'Membership Rejected': 'applications',
+        'Membership Approved': 'members',
+    };
+
     const handleNotificationClick = (n: any) => {
         markNotificationRead(n.id);
         setShowNotifications(false);
-        const targetTab = n.link ? NOTIF_LINK_TO_TAB[n.link] : undefined;
+        const targetTab = NOTIF_TITLE_TO_TAB[n.title] || (n.link ? NOTIF_LINK_TO_TAB[n.link] : undefined);
         if (targetTab) setActiveTab(targetTab);
     };
 
@@ -107,7 +123,7 @@ const AdminDashboard: React.FC = () => {
         const counts: Partial<Record<TabId, number>> = {};
         notifications.forEach((n: any) => {
             if (n.read) return;
-            const tab = n.link ? NOTIF_LINK_TO_TAB[n.link] : undefined;
+            const tab = NOTIF_TITLE_TO_TAB[n.title] || (n.link ? NOTIF_LINK_TO_TAB[n.link] : undefined);
             if (tab) counts[tab] = (counts[tab] || 0) + 1;
         });
         return counts;
@@ -197,13 +213,24 @@ const AdminDashboard: React.FC = () => {
     const [appActionType, setAppActionType] = useState<'approved' | 'rejected' | null>(null);
     const [appRemarksDraft, setAppRemarksDraft] = useState('');
     const [appActionSaving, setAppActionSaving] = useState(false);
+    // Reject-reason checkboxes — which category(ies) of issue caused the rejection,
+    // and (for a documents issue) exactly which uploaded files must be wiped so the
+    // member is forced to re-upload them.
+    const [appRejectDocsIssue, setAppRejectDocsIssue] = useState(false);
+    const [appRejectPaymentIssue, setAppRejectPaymentIssue] = useState(false);
+    const [appRejectDocIds, setAppRejectDocIds] = useState<string[]>([]);
     const [activeDropdownId, setActiveDropdownId] = useState<string | null>(null);
     const [appModalTab, setAppModalTab] = useState<'clinic' | 'account' | 'membership_info'>('clinic');
 
 
     const handleManualSync = async (app: any) => {
         try {
-            const fullName = `${app.firstName || ''} ${app.lastName || ''}`.trim() || app.representativeName || app.ownerName || 'Unknown';
+            // Owner-derived name only — firstName/lastName on the application are
+            // split from ownerName at signup, so this must NEVER fall back to
+            // representativeName, or the owner's own account ends up displaying
+            // their representative's name (the sidebar reads `users/{uid}.displayName`
+            // straight from this sync).
+            const fullName = `${app.firstName || ''} ${app.lastName || ''}`.trim() || app.ownerName || 'Unknown';
             const memberData = {
                 name: fullName,
                 email: app.email,
@@ -466,7 +493,7 @@ const AdminDashboard: React.FC = () => {
             items.push({
                 id: `app-${app.id}`,
                 title: 'New Applicant',
-                description: `Dr. ${app.firstName} ${app.lastName} applied as ${app.type}.`,
+                description: `${app.firstName} ${app.lastName} applied as ${app.type}.`,
                 date: new Date(app.date),
                 icon: 'person_add',
                 color: 'bg-emerald-500',
@@ -909,6 +936,11 @@ const AdminDashboard: React.FC = () => {
         }
     };
     const [inspectingApp, setInspectingApp] = useState<AccreditationApplication | null>(null);
+    const [inspectAppTab, setInspectAppTab] = useState<'loi' | 'self-assessment' | 'documents'>('loi');
+
+    useEffect(() => {
+        setInspectAppTab('loi');
+    }, [inspectingApp]);
     const [failReason, setFailReason] = useState('');
     const [showFailInput, setShowFailInput] = useState(false);
     const [accredActionLoading, setAccredActionLoading] = useState(false);
@@ -916,6 +948,15 @@ const AdminDashboard: React.FC = () => {
     const [selectedRevisitDate, setSelectedRevisitDate] = useState('');
     const [vefModal, setVefModal] = useState<{ open: boolean; existing: VisitingEvaluationForm | null }>({ open: false, existing: null });
     const [accredFileViewer, setAccredFileViewer] = useState<ViewerFile | null>(null);
+    const [showDeclineInput, setShowDeclineInput] = useState(false);
+    const [declineReason, setDeclineReason] = useState('');
+    const [isEditingDate, setIsEditingDate] = useState(false);
+    const [showProposeDate, setShowProposeDate] = useState(false);
+    const [proposeDate, setProposeDate] = useState('');
+    // After a member flags they can't make an admin-proposed date, the admin
+    // coordinates a new one directly with them via chat, then types it here —
+    // this sets the visit date immediately, no member re-acceptance needed.
+    const [resendDate, setResendDate] = useState('');
 
     // Keep the inspected application's evaluation forms in sync with live data
     useEffect(() => {
@@ -1908,12 +1949,27 @@ const AdminDashboard: React.FC = () => {
                             </div>
 
                             {/* Remarks Confirmation Modal */}
-                            {appActionTarget && appActionType && (
+                            {appActionTarget && appActionType && (() => {
+                                const rejectApplicantProfile = usersMap[(appActionTarget as any).uid] || {};
+                                const rejectBusinessType = rejectApplicantProfile.businessType || (appActionTarget as any).businessType || '';
+                                const rejectDocReqs = MEMBERSHIP_REQS_BY_BUSINESS_TYPE[rejectBusinessType] || [];
+                                const closeAppActionModal = () => {
+                                    setAppActionTarget(null);
+                                    setAppActionType(null);
+                                    setAppRemarksDraft('');
+                                    setAppRejectDocsIssue(false);
+                                    setAppRejectPaymentIssue(false);
+                                    setAppRejectDocIds([]);
+                                };
+                                const toggleRejectDocId = (id: string) => {
+                                    setAppRejectDocIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+                                };
+                                return (
                                 <div className="fixed inset-0 z-[300] flex items-center justify-center p-4">
-                                    <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => { setAppActionTarget(null); setAppActionType(null); setAppRemarksDraft(''); }} />
-                                    <div className="relative z-10 bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-md border border-slate-200 dark:border-white/10 overflow-hidden animate-modal-pop">
+                                    <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={closeAppActionModal} />
+                                    <div className="relative z-10 bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-md border border-slate-200 dark:border-white/10 overflow-hidden animate-modal-pop max-h-[90vh] flex flex-col">
                                         {/* Modal header */}
-                                        <div className={`px-6 py-4 flex items-center gap-3 border-b border-slate-100 dark:border-white/5 ${appActionType === 'approved' ? 'bg-emerald-50 dark:bg-emerald-950/30' : 'bg-rose-50 dark:bg-rose-950/30'}`}>
+                                        <div className={`px-6 py-4 flex items-center gap-3 border-b border-slate-100 dark:border-white/5 shrink-0 ${appActionType === 'approved' ? 'bg-emerald-50 dark:bg-emerald-950/30' : 'bg-rose-50 dark:bg-rose-950/30'}`}>
                                             <div className={`size-10 rounded-xl flex items-center justify-center ${appActionType === 'approved' ? 'bg-emerald-500' : 'bg-rose-500'} shadow-lg`}>
                                                 <span className="material-symbols-outlined text-white text-lg" style={{ fontVariationSettings: "'FILL' 1" }}>
                                                     {appActionType === 'approved' ? 'how_to_reg' : 'person_off'}
@@ -1927,7 +1983,7 @@ const AdminDashboard: React.FC = () => {
                                             </div>
                                         </div>
                                         {/* Modal body */}
-                                        <div className="px-6 py-5 space-y-4">
+                                        <div className="px-6 py-5 space-y-4 overflow-y-auto custom-scrollbar">
                                             <div className="flex items-center gap-3 p-3 bg-slate-50 dark:bg-white/5 rounded-xl border border-slate-100 dark:border-white/5">
                                                 {appActionTarget.facilityMedia?.[0]?.url ? (
                                                     <img src={appActionTarget.facilityMedia[0].url} className="size-12 rounded-xl object-cover flex-shrink-0 border border-slate-200 dark:border-white/10" alt="" />
@@ -1942,9 +1998,62 @@ const AdminDashboard: React.FC = () => {
                                                     <p className="text-[10px] text-slate-400 uppercase tracking-wider mt-0.5">{appActionTarget.type} · {appActionTarget.hospitalName || appActionTarget.vetSchool || 'N/A'}</p>
                                                 </div>
                                             </div>
+
+                                            {appActionType === 'rejected' && (
+                                                <div className="space-y-2.5">
+                                                    <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider block">
+                                                        Reasons to Reject
+                                                    </label>
+
+                                                    <label className="flex items-center gap-2.5 p-2.5 rounded-xl border border-slate-200 dark:border-white/10 cursor-pointer hover:bg-slate-50 dark:hover:bg-white/5 transition-colors">
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={appRejectDocsIssue}
+                                                            onChange={e => { setAppRejectDocsIssue(e.target.checked); if (!e.target.checked) setAppRejectDocIds([]); }}
+                                                            className="size-4 rounded accent-rose-500"
+                                                        />
+                                                        <span className="text-xs font-bold text-slate-700 dark:text-slate-200">Documents Issue</span>
+                                                    </label>
+
+                                                    {appRejectDocsIssue && (
+                                                        <div className="ml-2 space-y-1 p-3 rounded-xl bg-slate-50 dark:bg-white/[0.03] border border-slate-100 dark:border-white/5">
+                                                            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                                                                Select the document(s) with an issue — they'll be deleted so the member must re-upload them
+                                                            </p>
+                                                            {rejectDocReqs.length === 0 ? (
+                                                                <p className="text-[10px] text-slate-400 italic">Applicant hasn't selected a business structure yet — no documents to flag.</p>
+                                                            ) : rejectDocReqs.map(req => (
+                                                                <label key={req.id} className="flex items-center gap-2 py-1 cursor-pointer">
+                                                                    <input
+                                                                        type="checkbox"
+                                                                        checked={appRejectDocIds.includes(req.id)}
+                                                                        onChange={() => toggleRejectDocId(req.id)}
+                                                                        className="size-3.5 rounded accent-rose-500"
+                                                                    />
+                                                                    <span className="text-[11px] font-semibold text-slate-600 dark:text-slate-300">{req.label}</span>
+                                                                </label>
+                                                            ))}
+                                                        </div>
+                                                    )}
+
+                                                    <label className="flex items-center gap-2.5 p-2.5 rounded-xl border border-slate-200 dark:border-white/10 cursor-pointer hover:bg-slate-50 dark:hover:bg-white/5 transition-colors">
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={appRejectPaymentIssue}
+                                                            onChange={e => setAppRejectPaymentIssue(e.target.checked)}
+                                                            className="size-4 rounded accent-rose-500"
+                                                        />
+                                                        <span className="text-xs font-bold text-slate-700 dark:text-slate-200">Payment Issue</span>
+                                                    </label>
+                                                    {appRejectPaymentIssue && (
+                                                        <p className="ml-2 text-[10px] text-slate-400">Proof of payment will be cleared so the member must re-upload it.</p>
+                                                    )}
+                                                </div>
+                                            )}
+
                                             <div>
                                                 <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider block mb-1.5">
-                                                    {appActionType === 'approved' ? '✓ Approval Remarks (optional)' : '✗ Rejection Reason (optional)'}
+                                                    {appActionType === 'approved' ? '✓ Approval Remarks (optional)' : '✗ Additional Remarks (optional)'}
                                                 </label>
                                                 <textarea
                                                     id="app-action-remarks"
@@ -1953,15 +2062,15 @@ const AdminDashboard: React.FC = () => {
                                                     onChange={e => setAppRemarksDraft(e.target.value)}
                                                     placeholder={appActionType === 'approved'
                                                         ? 'e.g., Documents verified. Welcome to PAHA!'
-                                                        : 'e.g., Incomplete documentation. Please resubmit with valid PRC license.'}
+                                                        : 'e.g., Please re-upload a clearer scan of your PRC license.'}
                                                     className="w-full text-xs px-3 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-white/10 text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-primary/20 resize-none placeholder:text-slate-300 dark:placeholder:text-slate-600"
                                                 />
                                             </div>
                                         </div>
                                         {/* Modal footer */}
-                                        <div className="px-6 py-4 border-t border-slate-100 dark:border-white/5 flex justify-end gap-3 bg-slate-50 dark:bg-white/[0.02]">
+                                        <div className="px-6 py-4 border-t border-slate-100 dark:border-white/5 flex justify-end gap-3 bg-slate-50 dark:bg-white/[0.02] shrink-0">
                                             <button
-                                                onClick={() => { setAppActionTarget(null); setAppActionType(null); setAppRemarksDraft(''); }}
+                                                onClick={closeAppActionModal}
                                                 className="px-4 py-2 text-xs font-bold text-slate-500 hover:text-slate-700 dark:hover:text-white transition-colors rounded-lg"
                                             >
                                                 Cancel
@@ -1974,7 +2083,19 @@ const AdminDashboard: React.FC = () => {
                                                         if (appActionType === 'approved') {
                                                             await handleManualSync(appActionTarget);
                                                         }
-                                                        await updateApplicationStatus(appActionTarget.id, appActionType);
+
+                                                        let finalReason = appRemarksDraft.trim();
+                                                        if (appActionType === 'rejected') {
+                                                            const reasonParts: string[] = [];
+                                                            if (appRejectDocsIssue) {
+                                                                const flaggedLabels = rejectDocReqs.filter(r => appRejectDocIds.includes(r.id)).map(r => r.label);
+                                                                reasonParts.push(flaggedLabels.length > 0 ? `Documents Issue (${flaggedLabels.join(', ')})` : 'Documents Issue');
+                                                            }
+                                                            if (appRejectPaymentIssue) reasonParts.push('Payment Issue');
+                                                            finalReason = [reasonParts.join(' · '), appRemarksDraft.trim()].filter(Boolean).join(' — ');
+                                                        }
+
+                                                        await updateApplicationStatus(appActionTarget.id, appActionType, appActionType === 'rejected' ? finalReason : undefined);
                                                         if (appRemarksDraft.trim()) {
                                                             await updateDoc(doc(db, 'membership_applications', appActionTarget.id), {
                                                                 adminRemarks: appRemarksDraft.trim(),
@@ -1982,6 +2103,25 @@ const AdminDashboard: React.FC = () => {
                                                                 reviewedBy: user?.email || 'admin',
                                                             });
                                                         }
+
+                                                        if (appActionType === 'rejected') {
+                                                            const applicantUid = (appActionTarget as any).uid;
+                                                            if (appRejectDocsIssue && appRejectDocIds.length > 0) {
+                                                                const clearFields: Record<string, any> = {};
+                                                                appRejectDocIds.forEach(id => { clearFields[`membershipDocuments.${id}`] = deleteField(); });
+                                                                if (applicantUid) {
+                                                                    await updateDoc(doc(db, 'users', applicantUid), clearFields).catch(() => {});
+                                                                }
+                                                                await updateDoc(doc(db, 'membership_applications', appActionTarget.id), clearFields).catch(() => {});
+                                                            }
+                                                            if (appRejectPaymentIssue) {
+                                                                await updateDoc(doc(db, 'membership_applications', appActionTarget.id), {
+                                                                    paymentStatus: 'unpaid',
+                                                                    paymentReference: deleteField(),
+                                                                }).catch(() => {});
+                                                            }
+                                                        }
+
                                                         showToast(appActionType === 'approved'
                                                             ? `✓ Application of ${appActionTarget.firstName} ${appActionTarget.lastName} approved!`
                                                             : `✗ Application of ${appActionTarget.firstName} ${appActionTarget.lastName} rejected.`,
@@ -1989,9 +2129,7 @@ const AdminDashboard: React.FC = () => {
                                                         );
                                                     } finally {
                                                         setAppActionSaving(false);
-                                                        setAppActionTarget(null);
-                                                        setAppActionType(null);
-                                                        setAppRemarksDraft('');
+                                                        closeAppActionModal();
                                                     }
                                                 }}
                                                 className={`inline-flex items-center gap-2 px-5 py-2 text-xs font-black text-white rounded-xl transition-all active:scale-95 disabled:opacity-60 ${appActionType === 'approved' ? 'bg-emerald-500 hover:bg-emerald-600 shadow-emerald-500/20' : 'bg-rose-500 hover:bg-rose-600 shadow-rose-500/20'} shadow-lg`}
@@ -2004,7 +2142,8 @@ const AdminDashboard: React.FC = () => {
                                         </div>
                                     </div>
                                 </div>
-                            )}
+                                );
+                            })()}
 
                             {/* Enhanced table */}
                             <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-white/5 overflow-hidden">
@@ -2067,6 +2206,16 @@ const AdminDashboard: React.FC = () => {
 
                                                     const linkedM = members.find(m => m.email === app.email);
                                                     const memberId = getApplicationId(app);
+
+                                                    // Same completeness gate as the View Details modal — an admin
+                                                    // cannot approve while the applicant is missing a required
+                                                    // onboarding document for their chosen business structure.
+                                                    const rowApplicantProfile = usersMap[(app as any).uid] || {};
+                                                    const rowDocsStatus = getMembershipDocsStatus(
+                                                        rowApplicantProfile.businessType || (app as any).businessType,
+                                                        rowApplicantProfile.membershipDocuments || (app as any).membershipDocuments
+                                                    );
+                                                    const rowCanApprove = rowDocsStatus.complete;
 
                                                     return (
                                                         <tr key={app.id} className="hover:bg-blue-50/30 dark:hover:bg-white/[0.02] transition-colors group">
@@ -2178,13 +2327,16 @@ const AdminDashboard: React.FC = () => {
                                                                                         {app.status === 'pending' && adminRole !== 'viewer' && (
                                                                                             <>
                                                                                                 <button
+                                                                                                    disabled={!rowCanApprove}
+                                                                                                    title={!rowCanApprove ? `Cannot approve — ${rowDocsStatus.uploadedCount}/${rowDocsStatus.totalReqs} required documents uploaded` : undefined}
                                                                                                     onClick={() => {
+                                                                                                        if (!rowCanApprove) return;
                                                                                                         setAppActionTarget(app);
                                                                                                         setAppActionType('approved');
                                                                                                         setAppRemarksDraft('');
                                                                                                         setActiveDropdownId(null);
                                                                                                     }}
-                                                                                                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 rounded-lg transition-colors"
+                                                                                                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
                                                                                                 >
                                                                                                     <span className="material-symbols-outlined text-emerald-500 text-base" style={{ fontVariationSettings: "'FILL' 1" }}>check_circle</span>
                                                                                                     Approve
@@ -2425,13 +2577,19 @@ const AdminDashboard: React.FC = () => {
                                                         accredited: 'bg-emerald-500/10 text-emerald-500',
                                                         vef_failed: 'bg-rose-500/10 text-rose-500',
                                                         revisit_requested: 'bg-amber-500/10 text-amber-500',
+                                                        visit_date_proposed: 'bg-amber-500/10 text-amber-500',
+                                                        revisit_approved: 'bg-blue-500/10 text-blue-500',
                                                         accreditation_banned: 'bg-rose-500/10 text-rose-500',
                                                     };
-                                                    const rowVisited = app.status === 'inspection_completed' || !!app.visitData?.completedAt || ((app.visitingEvaluationForms?.length ?? 0) > 0);
-                                                    const showVisited = rowVisited && !['rejected', 'accredited', 'under_review', 'approved', 'for_payment', 'paid', 'needs_compliance', 'vef_failed', 'revisit_requested', 'accreditation_banned'].includes(app.status);
+                                                    // Per-round signal — not based on visitingEvaluationForms.length (see
+                                                    // the same fix in the inspection panel below for why).
+                                                    const rowVisited = app.status === 'inspection_completed' || !!app.visitData?.completedAt;
+                                                    const showVisited = rowVisited && !['rejected', 'accredited', 'under_review', 'approved', 'for_payment', 'paid', 'needs_compliance', 'vef_failed', 'revisit_requested', 'visit_date_proposed', 'revisit_approved', 'accreditation_banned'].includes(app.status);
                                                     const statusLabel = app.status === 'needs_compliance' ? 'Failed'
                                                         : app.status === 'vef_failed' ? 'Visited: Failed'
-                                                        : app.status === 'revisit_requested' ? 'Request for Revisit'
+                                                        : app.status === 'revisit_requested' ? 'Requesting for Visitation'
+                                                        : app.status === 'visit_date_proposed' ? (app.visitData?.proposalDeclinedAt ? 'Member Unavailable' : 'Awaiting Member Response')
+                                                        : app.status === 'revisit_approved' ? 'Revisitation Approved'
                                                         : app.status === 'accreditation_banned' ? 'Banned'
                                                         : (showVisited && app.status === 'inspection_completed') ? 'Visited: Passed'
                                                         : showVisited ? 'Visited'
@@ -2556,8 +2714,29 @@ const AdminDashboard: React.FC = () => {
                     const app = inspectingApp;
                     const saData = app.selfAssessmentData;
                     const checkedItems = saData?.checkedItems || {};
-                    // Visit is considered done once a Visiting Evaluation Form has been submitted
-                    const hasVisited = app.status === 'inspection_completed' || !!app.visitData?.completedAt || (app.visitingEvaluationForms?.length ?? 0) > 0;
+                    // A site visit can never be scheduled for today — earliest proposable date is tomorrow.
+                    const minVisitDateStr = (() => {
+                        const d = new Date();
+                        d.setDate(d.getDate() + 1);
+                        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+                    })();
+                    // Per-round signal — NOT based on visitingEvaluationForms.length, since that
+                    // array keeps every past (e.g. failed) VEF and would stay truthy forever,
+                    // wrongly marking a freshly-scheduled revisit as "already visited". Kept
+                    // "raw" (not round-scoped) because it's also used to show the PREVIOUS
+                    // round's completed-visit/VEF history, which should stay visible for
+                    // context while a revisit is being requested.
+                    const hasVisited = app.status === 'inspection_completed' || !!app.visitData?.completedAt;
+                    // Round-scoped: a pending revisit request/proposal must NOT inherit
+                    // "visited" from the previous (failed) round — that would lock the new 3
+                    // date options and hide date-picking actions before the admin ever picks one.
+                    const roundVisited = hasVisited && app.status !== 'revisit_requested' && app.status !== 'visit_date_proposed';
+                    const revisitDates = app.visitData?.preferredRevisitDates;
+                    const isRevisit = !!revisitDates?.length;
+                    // A date is "committed" once it's been scheduled/approved (or the visit
+                    // already happened) — at that point the other two options lock, with an
+                    // Edit button to reopen the picker if the schedule needs to change.
+                    const isCommitted = app.status === 'for_site_visit' || app.status === 'revisit_approved' || roundVisited;
 
                     // Step 1 of the decision: approving the LOI only unlocks Self-Assessment
                     // for the applicant — it must NOT jump straight to scheduling a site visit.
@@ -2612,22 +2791,31 @@ const AdminDashboard: React.FC = () => {
                                 read: false, createdAt: serverTimestamp(),
                             });
                             showToast('Site visit scheduled!', 'success');
-                            setInspectingApp(null);
+                            setIsEditingDate(false);
                         } catch (e) { showToast('Failed to schedule visit.', 'error'); }
                         finally { setAccredActionLoading(false); }
                     };
 
                     // Admin approves one of the member's proposed revisit dates —
-                    // confirms the schedule and sends the applicant back to the
-                    // normal "for_site_visit" flow.
+                    // confirms the schedule and sends the applicant to the
+                    // "revisit_approved" flow (distinct from a first-time visit,
+                    // so the member/admin never see the stale "Visited" label
+                    // before the revisit itself has actually happened).
                     const handleApproveRevisit = async () => {
                         if (!selectedRevisitDate) { showToast('Please select a date first.', 'error'); return; }
                         setAccredActionLoading(true);
                         try {
+                            // Keep preferredRevisitDates — wiping it here made the panel fall
+                            // back to the ORIGINAL loiData dates (and lose which of the 3
+                            // revisit options was actually chosen) the moment the second
+                            // visit's VEF was submitted. Drop completedAt explicitly (not just
+                            // `undefined`, which Firestore rejects) so this fresh round isn't
+                            // marked visited before it's actually happened.
+                            const { completedAt, ...restVisitData } = app.visitData || {};
                             await updateDoc(doc(db, 'accreditation_applications', app.id), {
-                                status: 'for_site_visit',
+                                status: 'revisit_approved',
                                 stage: 3,
-                                visitData: { scheduledDate: selectedRevisitDate, scheduledTime: '', inspectorName: '', notes: '', confirmedAt: new Date().toISOString() },
+                                visitData: { ...restVisitData, scheduledDate: selectedRevisitDate, scheduledTime: '', inspectorName: '', notes: '', confirmedAt: new Date().toISOString() },
                                 updatedAt: serverTimestamp(),
                             });
                             await addDoc(collection(db, 'member_notifications'), {
@@ -2637,8 +2825,68 @@ const AdminDashboard: React.FC = () => {
                                 read: false, createdAt: serverTimestamp(),
                             });
                             showToast('Revisit approved. Member notified.', 'success');
-                            setInspectingApp(null);
+                            setIsEditingDate(false);
                         } catch (e) { showToast('Failed to approve revisit.', 'error'); }
+                        finally { setAccredActionLoading(false); }
+                    };
+
+                    // Escape hatch: none of the member's 3 preferred/revisit dates work for
+                    // the inspector (e.g. representative unavailable) — propose a different
+                    // date and let the member accept it or flag they're unavailable via chat.
+                    const handleProposeAlternateDate = async () => {
+                        if (!proposeDate) { showToast('Please pick a date to propose.', 'error'); return; }
+                        setAccredActionLoading(true);
+                        try {
+                            await updateDoc(doc(db, 'accreditation_applications', app.id), {
+                                status: 'visit_date_proposed',
+                                stage: 3,
+                                visitData: {
+                                    ...(app.visitData || { scheduledDate: '', scheduledTime: '', inspectorName: '', notes: '' }),
+                                    scheduledDate: '',
+                                    adminProposedDate: proposeDate,
+                                    proposedForRevisit: isRevisit,
+                                },
+                                updatedAt: serverTimestamp(),
+                            });
+                            await addDoc(collection(db, 'member_notifications'), {
+                                clinicId: app.clinicId, type: 'accreditation_visit_proposed',
+                                title: 'New Site Visit Date Proposed',
+                                body: `None of your preferred dates worked for the PAHA inspector. A new date was proposed for ${app.clinicName}: ${new Date(proposeDate).toLocaleDateString()}. Please review and respond.`,
+                                read: false, createdAt: serverTimestamp(),
+                            });
+                            showToast('Alternate date proposed. Member notified.', 'success');
+                            setShowProposeDate(false);
+                            setProposeDate('');
+                            setIsEditingDate(false);
+                        } catch (e) { showToast('Failed to propose date.', 'error'); }
+                        finally { setAccredActionLoading(false); }
+                    };
+
+                    // Member flagged the proposed date doesn't work for them — once the
+                    // admin has coordinated a replacement with them via chat, this sets
+                    // it directly as the confirmed schedule. No second member-acceptance
+                    // round; the chat conversation already served as the agreement.
+                    const handleSendRescheduledDate = async () => {
+                        if (!resendDate) { showToast('Please pick a date first.', 'error'); return; }
+                        setAccredActionLoading(true);
+                        try {
+                            const nextStatus = app.visitData?.proposedForRevisit ? 'revisit_approved' : 'for_site_visit';
+                            const { adminProposedDate, proposedForRevisit, proposalDeclinedAt, ...restVisitData } = app.visitData || { scheduledDate: '', scheduledTime: '', inspectorName: '', notes: '' };
+                            await updateDoc(doc(db, 'accreditation_applications', app.id), {
+                                status: nextStatus,
+                                stage: 3,
+                                visitData: { ...restVisitData, scheduledDate: resendDate, confirmedAt: new Date().toISOString() },
+                                updatedAt: serverTimestamp(),
+                            });
+                            await addDoc(collection(db, 'member_notifications'), {
+                                clinicId: app.clinicId, type: 'accreditation_visit_scheduled',
+                                title: 'Site Visit Date Confirmed',
+                                body: `Following your chat with PAHA, your site visit for ${app.clinicName} is now scheduled: ${new Date(resendDate).toLocaleDateString()}.`,
+                                read: false, createdAt: serverTimestamp(),
+                            });
+                            showToast('New date sent to member.', 'success');
+                            setResendDate('');
+                        } catch (e) { showToast('Failed to send new date.', 'error'); }
                         finally { setAccredActionLoading(false); }
                     };
 
@@ -2681,18 +2929,40 @@ const AdminDashboard: React.FC = () => {
 
                     // Decline compliance documents — mark Failed, member must resend
                     const handleDeclineCompliance = async () => {
+                        if (!declineReason.trim()) { showToast('Please enter a reason.', 'error'); return; }
                         setAccredActionLoading(true);
                         try {
+                            // Nothing in the workflow is irrevocable — even a finalized (paid/accredited)
+                            // application can be disapproved, reopening it for compliance resubmission
+                            // and clearing any prior payment/accreditation confirmation.
+                            const wasFinalized = app.status === 'for_payment' || app.status === 'paid' || app.status === 'accredited';
                             await updateDoc(doc(db, 'accreditation_applications', app.id), {
-                                status: 'needs_compliance', updatedAt: serverTimestamp(),
+                                status: 'needs_compliance',
+                                complianceRejectionReason: declineReason.trim(),
+                                ...(wasFinalized ? { paymentData: null } : {}),
+                                updatedAt: serverTimestamp(),
                             });
+                            if (wasFinalized && app.clinicId) {
+                                await updateDoc(doc(db, 'users', app.clinicId), { isAccredited: false }).catch(() => {});
+                                const memberDocs = await getDocs(query(collection(db, 'members'), where('email', '==', app.loiData?.email || '')));
+                                await Promise.all(memberDocs.docs.map(d => updateDoc(doc(db, 'members', d.id), { isAccredited: false })));
+                            }
                             await addDoc(collection(db, 'member_notifications'), {
                                 clinicId: app.clinicId, type: 'accreditation_needs_compliance',
-                                title: 'Documents Declined — Resend Requirements',
-                                body: `Your compliance documents for ${app.clinicName} were declined. Please resend the required documents.`,
+                                title: wasFinalized ? 'Accreditation Revoked' : 'Final Review Declined',
+                                body: `${wasFinalized ? 'Your accreditation for' : 'Your accreditation review for'} ${app.clinicName} was ${wasFinalized ? 'revoked' : 'declined'}. Reason: ${declineReason.trim()}`,
                                 read: false, createdAt: serverTimestamp(),
                             });
-                            showToast('Declined. Member asked to resend.', 'success');
+                            await addDoc(collection(db, 'admin_notifications'), {
+                                type: 'accreditation',
+                                title: wasFinalized ? 'Accreditation Revoked — Final Review' : 'Application Declined — Final Review',
+                                body: `${app.clinicName} ${wasFinalized ? 'revoked' : 'declined'} in final review. Reason: ${declineReason.trim()}`,
+                                link: 'accreditation',
+                                read: false, createdAt: serverTimestamp(),
+                            });
+                            showToast(wasFinalized ? 'Accreditation revoked. Member notified with reason.' : 'Declined. Member notified with reason.', 'success');
+                            setShowDeclineInput(false);
+                            setDeclineReason('');
                         } catch (e) { showToast('Failed to decline.', 'error'); }
                         finally { setAccredActionLoading(false); }
                     };
@@ -2730,7 +3000,13 @@ const AdminDashboard: React.FC = () => {
                                     ) : app.status === 'vef_failed' ? (
                                         <span className="px-4 py-2 rounded-[10px] bg-red-100 text-red-700 font-bold text-xs uppercase">Site Visit Not Passed</span>
                                     ) : app.status === 'revisit_requested' ? (
-                                        <span className="px-4 py-2 rounded-[10px] bg-amber-100 text-amber-700 font-bold text-xs uppercase">Request for Revisit</span>
+                                        <span className="px-4 py-2 rounded-[10px] bg-amber-100 text-amber-700 font-bold text-xs uppercase">Requesting for Visitation</span>
+                                    ) : app.status === 'visit_date_proposed' && app.visitData?.proposalDeclinedAt ? (
+                                        <span className="px-4 py-2 rounded-[10px] bg-rose-100 text-rose-700 font-bold text-xs uppercase">Member Unavailable</span>
+                                    ) : app.status === 'visit_date_proposed' ? (
+                                        <span className="px-4 py-2 rounded-[10px] bg-amber-100 text-amber-700 font-bold text-xs uppercase">Awaiting Member Response</span>
+                                    ) : app.status === 'revisit_approved' ? (
+                                        <span className="px-4 py-2 rounded-[10px] bg-blue-100 text-blue-700 font-bold text-xs uppercase">Revisitation Approved</span>
                                     ) : app.status === 'accreditation_banned' ? (
                                         <span className="px-4 py-2 rounded-[10px] bg-red-100 text-red-700 font-bold text-xs uppercase">Banned</span>
                                     ) : hasVisited ? (
@@ -2775,37 +3051,89 @@ const AdminDashboard: React.FC = () => {
                                         </div>
                                     </div>
 
-                                    {/* LOI PDF Viewer */}
-                                    {app.loiPdfUrl ? (
-                                        <div className="bg-white dark:bg-slate-800/40 rounded-[10px] border border-slate-200 dark:border-white/5 overflow-hidden">
-                                            <div className="px-6 py-4 border-b border-slate-100 dark:border-white/5 flex items-center justify-between">
-                                                <div className="flex items-center gap-2">
-                                                    <span className="material-symbols-outlined text-primary">picture_as_pdf</span>
-                                                    <h3 className="text-xs font-bold uppercase tracking-widest text-slate-700 dark:text-white">Letter of Intent — Document</h3>
+                                    {/* Tabs bar */}
+                                    <div className="flex border-b border-slate-200 dark:border-white/5 mb-4">
+                                        <button 
+                                            type="button"
+                                            onClick={() => setInspectAppTab('loi')}
+                                            className={`px-4 py-2.5 text-xs font-bold uppercase tracking-wider border-b-2 transition-all ${inspectAppTab === 'loi' ? 'border-primary text-primary font-bold' : 'border-transparent text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'}`}
+                                        >
+                                            Letter of Intent
+                                        </button>
+                                        <button 
+                                            type="button"
+                                            onClick={() => setInspectAppTab('self-assessment')}
+                                            className={`px-4 py-2.5 text-xs font-bold uppercase tracking-wider border-b-2 transition-all ${inspectAppTab === 'self-assessment' ? 'border-primary text-primary font-bold' : 'border-transparent text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'}`}
+                                        >
+                                            Self-Assessment Summary
+                                        </button>
+                                        <button 
+                                            type="button"
+                                            onClick={() => setInspectAppTab('documents')}
+                                            className={`px-4 py-2.5 text-xs font-bold uppercase tracking-wider border-b-2 transition-all ${inspectAppTab === 'documents' ? 'border-primary text-primary font-bold' : 'border-transparent text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'}`}
+                                        >
+                                            Uploaded Documents
+                                        </button>
+                                    </div>
+
+                                    {/* Tab Contents */}
+                                    {inspectAppTab === 'loi' && (
+                                        app.loiPdfUrl ? (
+                                            <div className="bg-white dark:bg-slate-800/40 rounded-[10px] border border-slate-200 dark:border-white/5 overflow-hidden">
+                                                <div className="px-6 py-4 border-b border-slate-100 dark:border-white/5 flex items-center justify-between">
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="material-symbols-outlined text-primary">picture_as_pdf</span>
+                                                        <h3 className="text-xs font-bold uppercase tracking-widest text-slate-700 dark:text-white">Letter of Intent — Document</h3>
+                                                    </div>
+                                                    <a href={app.loiPdfUrl} target="_blank" rel="noopener noreferrer" className="text-[10px] font-bold text-primary uppercase tracking-widest flex items-center gap-1 hover:underline">
+                                                        <span className="material-symbols-outlined text-sm">open_in_new</span>Open in new tab
+                                                    </a>
                                                 </div>
-                                                <a href={app.loiPdfUrl} target="_blank" rel="noopener noreferrer" className="text-[10px] font-bold text-primary uppercase tracking-widest flex items-center gap-1 hover:underline">
-                                                    <span className="material-symbols-outlined text-sm">open_in_new</span>Open in new tab
-                                                </a>
+                                                <iframe src={getEmbeddableUrl(app.loiPdfUrl)} className="w-full h-[500px]" title="LOI Document" />
                                             </div>
-                                            <iframe src={getEmbeddableUrl(app.loiPdfUrl)} className="w-full h-[500px]" title="LOI Document" />
-                                        </div>
-                                    ) : (
-                                        <div className="bg-white dark:bg-slate-800/40 rounded-[10px] border border-dashed border-slate-200 dark:border-white/10 p-5 text-center">
-                                            <span className="material-symbols-outlined text-3xl text-slate-300 mb-2 block">description</span>
-                                            <p className="text-sm text-slate-400 font-medium">No LOI PDF document uploaded by the applicant.</p>
+                                        ) : (
+                                            <div className="bg-white dark:bg-slate-800/40 rounded-[10px] border border-dashed border-slate-200 dark:border-white/10 p-5 text-center">
+                                                <span className="material-symbols-outlined text-3xl text-slate-300 mb-2 block">description</span>
+                                                <p className="text-sm text-slate-400 font-medium">No LOI PDF document uploaded by the applicant.</p>
+                                            </div>
+                                        )
+                                    )}
+
+                                    {inspectAppTab === 'self-assessment' && (
+                                        <div className="bg-white dark:bg-slate-800/40 rounded-[10px] border border-slate-200 dark:border-white/5 p-4">
+                                            <h3 className="text-xs font-bold uppercase tracking-widest text-slate-400 mb-4">
+                                                Self-Assessment Summary
+                                                {saData && <span className="ml-2 text-slate-300">· Submitted {new Date(saData.submittedAt).toLocaleDateString()}</span>}
+                                            </h3>
+                                            {!saData ? (
+                                                <p className="text-sm text-slate-400 italic">Self-assessment not yet submitted by the applicant.</p>
+                                            ) : (
+                                                <AccreditationChecklist
+                                                    standard={STANDARD_2026}
+                                                    mode="self-assessment"
+                                                    value={checkedItems}
+                                                    onChange={() => {}}
+                                                    readOnly
+                                                    showGapSummary
+                                                />
+                                            )}
                                         </div>
                                     )}
 
-                                    {/* Uploaded Documents (member's onboarding + compliance files) — the
-                                        authoritative copy lives on the clinic's own users/{uid} profile;
-                                        the application doc's mirrored copy can be stale, so prefer usersMap. */}
-                                    {(() => {
+                                    {inspectAppTab === 'documents' && (() => {
                                         const applicantProfile = usersMap[app.clinicId] || {};
                                         const memberDocs = Object.entries(((applicantProfile.membershipDocuments || (app as any).membershipDocuments || {})) as Record<string, any[]>).filter(([, files]) => files?.length);
                                         const catDocs = ASSESSMENT_CATEGORIES
                                             .map(cat => ({ title: cat.title, files: app.complianceData?.categories?.[cat.id]?.uploadedFiles || [] }))
                                             .filter(c => c.files.length > 0);
-                                        if (memberDocs.length === 0 && catDocs.length === 0) return null;
+                                        if (memberDocs.length === 0 && catDocs.length === 0) {
+                                            return (
+                                                <div className="bg-white dark:bg-slate-800/40 rounded-[10px] border border-dashed border-slate-200 dark:border-white/10 p-5 text-center">
+                                                    <span className="material-symbols-outlined text-3xl text-slate-300 mb-2 block">folder</span>
+                                                    <p className="text-sm text-slate-400 font-medium">No uploaded compliance or membership documents found.</p>
+                                                </div>
+                                            );
+                                        }
                                         return (
                                             <div className="bg-white dark:bg-slate-800/40 rounded-[10px] border border-slate-200 dark:border-white/5 p-4">
                                                 <h3 className="text-xs font-bold uppercase tracking-widest text-slate-400 mb-4">Uploaded Files</h3>
@@ -2860,14 +3188,32 @@ const AdminDashboard: React.FC = () => {
                                                             Approved — Proceed to Payment
                                                         </button>
                                                         {app.status !== 'needs_compliance' && (
-                                                            <button
-                                                                onClick={handleDeclineCompliance}
-                                                                disabled={accredActionLoading}
-                                                                className="w-full py-3.5 rounded-[10px] font-bold text-sm bg-red-500 text-white hover:bg-red-600 transition-all shadow-lg shadow-red-500/20 flex items-center justify-center gap-2 disabled:opacity-40"
-                                                            >
-                                                                <span className="material-symbols-outlined text-sm">cancel</span>
-                                                                Declined
-                                                            </button>
+                                                            !showDeclineInput ? (
+                                                                <button
+                                                                    onClick={() => setShowDeclineInput(true)}
+                                                                    disabled={accredActionLoading}
+                                                                    className="w-full py-3.5 rounded-[10px] font-bold text-sm bg-red-500 text-white hover:bg-red-600 transition-all shadow-lg shadow-red-500/20 flex items-center justify-center gap-2 disabled:opacity-40"
+                                                                >
+                                                                    <span className="material-symbols-outlined text-sm">cancel</span>
+                                                                    Decline
+                                                                </button>
+                                                            ) : (
+                                                                <div className="space-y-2">
+                                                                    <textarea
+                                                                        value={declineReason}
+                                                                        onChange={e => setDeclineReason(e.target.value)}
+                                                                        placeholder="Enter reason for declining (required)..."
+                                                                        rows={3}
+                                                                        className="w-full px-4 py-3 text-sm border border-slate-200 dark:border-white/10 rounded-[10px] bg-white dark:bg-slate-900 focus:ring-2 focus:ring-red-500 outline-none resize-none"
+                                                                    />
+                                                                    <div className="flex gap-2">
+                                                                        <button onClick={() => { setShowDeclineInput(false); setDeclineReason(''); }} className="flex-1 py-2 text-xs font-bold rounded-[10px] border border-slate-200 text-slate-500 hover:bg-slate-50 transition-colors">Cancel</button>
+                                                                        <button onClick={handleDeclineCompliance} disabled={accredActionLoading || !declineReason.trim()} className="flex-1 py-2 text-xs font-bold rounded-[10px] bg-red-500 text-white hover:bg-red-600 transition-colors disabled:opacity-40">
+                                                                            Confirm Decline
+                                                                        </button>
+                                                                    </div>
+                                                                </div>
+                                                            )
                                                         )}
                                                     </div>
                                                 )}
@@ -2881,16 +3227,32 @@ const AdminDashboard: React.FC = () => {
                                     {/* Preferred Visit Dates — overridden by the member's proposed REVISIT
                                         dates once a revisit has been requested, so this never shows the
                                         stale original LOI dates alongside a since-failed visit. */}
-                                    {(() => {
-                                        const revisitDates = app.visitData?.preferredRevisitDates;
-                                        const isRevisit = !!revisitDates?.length;
+                                    {app.status !== 'visit_date_proposed' && (() => {
                                         const dates = isRevisit ? revisitDates! : (app.loiData?.preferredVisitDates || []);
-                                        const selected = isRevisit ? selectedRevisitDate : selectedVisitDate;
+                                        const locked = isCommitted && !isEditingDate;
+                                        // Once locked, show the ACTUAL scheduled date (source of truth in
+                                        // Firestore) — not the local radio state, which defaults to the
+                                        // first option on load and drifts from whatever was really picked.
+                                        const selected = locked ? (app.visitData?.scheduledDate || '') : (isRevisit ? selectedRevisitDate : selectedVisitDate);
                                         const setSelected = isRevisit ? setSelectedRevisitDate : setSelectedVisitDate;
-                                        const locked = isRevisit ? false : hasVisited;
+                                        // isEditingDate is an explicit admin override, so it's allowed
+                                        // even after the round is "visited" (e.g. correcting a mistaken
+                                        // schedule after a failed VEF).
+                                        const canAct = adminRole !== 'viewer' && (isEditingDate || (!roundVisited && !isCommitted));
+                                        const onConfirm = isRevisit ? handleApproveRevisit : handleScheduleSiteVisit;
                                         return (
                                             <div className={`bg-white dark:bg-slate-800/40 rounded-[10px] border p-4 ${isRevisit ? 'border-amber-200 dark:border-amber-500/20' : 'border-slate-200 dark:border-white/5'}`}>
-                                                <h3 className={`text-xs font-bold uppercase tracking-widest mb-4 ${isRevisit ? 'text-amber-600' : 'text-slate-400'}`}>{isRevisit ? 'Preferred Revisit Dates' : 'Preferred Visit Dates'}</h3>
+                                                <div className="flex items-center justify-between mb-4">
+                                                    <h3 className={`text-xs font-bold uppercase tracking-widest ${isRevisit ? 'text-amber-600' : 'text-slate-400'}`}>{isRevisit ? 'Preferred Revisit Dates' : 'Preferred Visit Dates'}</h3>
+                                                    {isCommitted && !isEditingDate && adminRole !== 'viewer' && (
+                                                        <button
+                                                            onClick={() => setIsEditingDate(true)}
+                                                            className="text-[10px] font-bold text-primary uppercase tracking-widest flex items-center gap-1 hover:underline"
+                                                        >
+                                                            <span className="material-symbols-outlined text-sm">edit</span>Edit
+                                                        </button>
+                                                    )}
+                                                </div>
                                                 {dates.length ? (
                                                     <div className="space-y-2">
                                                         {dates.map((date, i) => (
@@ -2900,29 +3262,109 @@ const AdminDashboard: React.FC = () => {
                                                                     : 'border-slate-100 dark:border-white/5 hover:border-slate-200'
                                                             }`}>
                                                                 <input id={`visit-${i}`} type="radio" name="visitDate" value={date} checked={selected === date} onChange={() => setSelected(date)} disabled={locked} className="accent-primary disabled:cursor-not-allowed" />
-                                                                <div>
+                                                                <div className="flex-1">
                                                                     <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Option {i + 1}</p>
                                                                     <p className="text-sm font-bold text-slate-900 dark:text-white">{new Date(date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', year: 'numeric', month: 'long', day: 'numeric' })}</p>
                                                                 </div>
+                                                                {locked && selected === date && (
+                                                                    <span className="material-symbols-outlined text-primary text-lg">lock</span>
+                                                                )}
                                                             </label>
                                                         ))}
                                                     </div>
                                                 ) : (
                                                     <p className="text-sm text-slate-400 italic">No preferred dates submitted.</p>
                                                 )}
-                                                {isRevisit && app.status === 'revisit_requested' && adminRole !== 'viewer' && (
+                                                {canAct && (isRevisit || isEditingDate) && (
                                                     <button
-                                                        onClick={handleApproveRevisit}
-                                                        disabled={accredActionLoading || !selectedRevisitDate}
+                                                        onClick={onConfirm}
+                                                        disabled={accredActionLoading || !selected}
                                                         className="w-full mt-4 py-3 rounded-[10px] font-bold text-sm bg-primary text-white hover:bg-primary/90 transition-all shadow-lg shadow-primary/20 flex items-center justify-center gap-2 disabled:opacity-40"
                                                     >
                                                         {accredActionLoading ? <span className="animate-spin border-2 border-white/30 border-t-white rounded-full size-4" /> : <span className="material-symbols-outlined text-sm">event_available</span>}
-                                                        Approve Revisit
+                                                        {isEditingDate ? 'Save New Date' : 'Approve Revisit'}
                                                     </button>
+                                                )}
+
+                                                {/* Escape hatch — none of the 3 dates work (e.g. inspector/rep unavailable) */}
+                                                {dates.length > 0 && !roundVisited && adminRole !== 'viewer' && (
+                                                    !showProposeDate ? (
+                                                        <button
+                                                            onClick={() => setShowProposeDate(true)}
+                                                            className="w-full mt-3 py-2.5 rounded-[10px] font-bold text-[11px] uppercase tracking-wider text-slate-500 hover:text-primary hover:bg-primary/5 transition-all border border-dashed border-slate-200 dark:border-white/10"
+                                                        >
+                                                            None of these dates work — propose a different date
+                                                        </button>
+                                                    ) : (
+                                                        <div className="mt-3 p-3 rounded-[10px] border border-slate-200 dark:border-white/10 space-y-2">
+                                                            <label htmlFor="ad-propose-date" className="text-[10px] font-bold text-slate-500 uppercase tracking-widest block">Propose Alternate Date</label>
+                                                            <input
+                                                                id="ad-propose-date"
+                                                                type="date"
+                                                                value={proposeDate}
+                                                                min={minVisitDateStr}
+                                                                onChange={e => setProposeDate(e.target.value)}
+                                                                className="w-full px-3 py-2 text-sm border border-slate-200 dark:border-white/10 rounded-[10px] bg-white dark:bg-slate-900 outline-none focus:ring-2 focus:ring-primary/20"
+                                                            />
+                                                            <div className="flex gap-2">
+                                                                <button onClick={() => { setShowProposeDate(false); setProposeDate(''); }} className="flex-1 py-2 text-xs font-bold rounded-[10px] border border-slate-200 text-slate-500 hover:bg-slate-50 transition-colors">Cancel</button>
+                                                                <button onClick={handleProposeAlternateDate} disabled={accredActionLoading || !proposeDate} className="flex-1 py-2 text-xs font-bold rounded-[10px] bg-amber-500 text-white hover:bg-amber-600 transition-colors disabled:opacity-40">
+                                                                    Send to Member
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    )
                                                 )}
                                             </div>
                                         );
                                     })()}
+
+                                    {/* Awaiting member response to a proposed alternate date */}
+                                    {app.status === 'visit_date_proposed' && app.visitData?.adminProposedDate && !app.visitData?.proposalDeclinedAt && (
+                                        <div className="bg-white dark:bg-slate-800/40 rounded-[10px] border border-amber-200 dark:border-amber-500/20 p-4">
+                                            <h3 className="text-xs font-bold uppercase tracking-widest text-amber-600 mb-2">Awaiting Member Response</h3>
+                                            <p className="text-sm font-bold text-slate-900 dark:text-white">
+                                                {new Date(app.visitData.adminProposedDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+                                            </p>
+                                            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Proposed to the member — waiting for them to accept or flag unavailability via chat.</p>
+                                        </div>
+                                    )}
+
+                                    {/* Member flagged the proposed date doesn't work — coordinate a
+                                        replacement via chat, then set it directly here (no second
+                                        member-acceptance round needed). */}
+                                    {app.status === 'visit_date_proposed' && app.visitData?.proposalDeclinedAt && (
+                                        <div className="bg-white dark:bg-slate-800/40 rounded-[10px] border border-rose-200 dark:border-rose-500/20 p-4 space-y-3">
+                                            <h3 className="text-xs font-bold uppercase tracking-widest text-rose-600 flex items-center gap-1.5">
+                                                <span className="material-symbols-outlined text-sm">event_busy</span>
+                                                Member Unavailable — Reschedule Needed
+                                            </h3>
+                                            <p className="text-xs text-slate-500 dark:text-slate-400">
+                                                {app.clinicName} flagged that {app.visitData.adminProposedDate ? new Date(app.visitData.adminProposedDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) : 'the proposed date'} doesn't work for them. Coordinate a new date via the chat, then send it below — it's set immediately, no further confirmation needed.
+                                            </p>
+                                            {adminRole !== 'viewer' && (
+                                                <div className="space-y-2">
+                                                    <label htmlFor="adm-resend-date" className="text-[10px] font-bold text-slate-500 uppercase tracking-widest block">New Site Visit Date</label>
+                                                    <input
+                                                        id="adm-resend-date"
+                                                        type="date"
+                                                        value={resendDate}
+                                                        min={minVisitDateStr}
+                                                        onChange={e => setResendDate(e.target.value)}
+                                                        className="w-full px-3 py-2 text-sm border border-slate-200 dark:border-white/10 rounded-[10px] bg-white dark:bg-slate-900 outline-none focus:ring-2 focus:ring-primary/20"
+                                                    />
+                                                    <button
+                                                        onClick={handleSendRescheduledDate}
+                                                        disabled={accredActionLoading || !resendDate}
+                                                        className="w-full py-2.5 text-xs font-bold rounded-[10px] bg-rose-500 text-white hover:bg-rose-600 transition-colors disabled:opacity-40 flex items-center justify-center gap-2"
+                                                    >
+                                                        {accredActionLoading ? <span className="animate-spin border-2 border-white/30 border-t-white rounded-full size-4" /> : <span className="material-symbols-outlined text-sm">send</span>}
+                                                        Send New Date to Member
+                                                    </button>
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
 
                                     {/* Waiting note — LOI approved, applicant still working on self-assessment */}
                                     {app.status === 'loi_approved' && (
@@ -2957,30 +3399,36 @@ const AdminDashboard: React.FC = () => {
                                                 </button>
                                             )}
 
-                                            {!showFailInput ? (
-                                                <button
-                                                    onClick={() => setShowFailInput(true)}
-                                                    className="w-full py-4 rounded-[10px] font-bold text-sm bg-red-500 text-white hover:bg-red-600 transition-all shadow-lg shadow-red-500/20 flex items-center justify-center gap-2"
-                                                >
-                                                    <span className="material-symbols-outlined text-sm">cancel</span>
-                                                    Failed — Reject Application
-                                                </button>
-                                            ) : (
-                                                <div className="space-y-3">
-                                                    <textarea
-                                                        value={failReason}
-                                                        onChange={e => setFailReason(e.target.value)}
-                                                        placeholder="Enter reason for rejection..."
-                                                        rows={3}
-                                                        className="w-full px-4 py-3 text-sm border border-slate-200 dark:border-white/10 rounded-[10px] bg-white dark:bg-slate-900 focus:ring-2 focus:ring-red-500 outline-none resize-none"
-                                                    />
-                                                    <div className="flex gap-2">
-                                                        <button onClick={() => setShowFailInput(false)} className="flex-1 py-2 text-xs font-bold rounded-[10px] border border-slate-200 text-slate-500 hover:bg-slate-50 transition-colors">Cancel</button>
-                                                        <button onClick={handleFail} disabled={accredActionLoading || !failReason.trim()} className="flex-1 py-2 text-xs font-bold rounded-[10px] bg-red-500 text-white hover:bg-red-600 transition-colors disabled:opacity-40">
-                                                            Confirm Rejection
-                                                        </button>
+                                            {/* Reject-back-to-Stage-1 only makes sense while reviewing the LOI
+                                                itself — it must NOT show once the LOI is already approved and
+                                                the applicant is past self-assessment, or clicking it wrongly
+                                                wipes an already-approved application back to "LOI Rejected". */}
+                                            {(app.status === 'intent_submitted' || app.status === 'intent_resubmitted') && (
+                                                !showFailInput ? (
+                                                    <button
+                                                        onClick={() => setShowFailInput(true)}
+                                                        className="w-full py-4 rounded-[10px] font-bold text-sm bg-red-500 text-white hover:bg-red-600 transition-all shadow-lg shadow-red-500/20 flex items-center justify-center gap-2"
+                                                    >
+                                                        <span className="material-symbols-outlined text-sm">cancel</span>
+                                                        Failed — Reject Application
+                                                    </button>
+                                                ) : (
+                                                    <div className="space-y-3">
+                                                        <textarea
+                                                            value={failReason}
+                                                            onChange={e => setFailReason(e.target.value)}
+                                                            placeholder="Enter reason for rejection..."
+                                                            rows={3}
+                                                            className="w-full px-4 py-3 text-sm border border-slate-200 dark:border-white/10 rounded-[10px] bg-white dark:bg-slate-900 focus:ring-2 focus:ring-red-500 outline-none resize-none"
+                                                        />
+                                                        <div className="flex gap-2">
+                                                            <button onClick={() => setShowFailInput(false)} className="flex-1 py-2 text-xs font-bold rounded-[10px] border border-slate-200 text-slate-500 hover:bg-slate-50 transition-colors">Cancel</button>
+                                                            <button onClick={handleFail} disabled={accredActionLoading || !failReason.trim()} className="flex-1 py-2 text-xs font-bold rounded-[10px] bg-red-500 text-white hover:bg-red-600 transition-colors disabled:opacity-40">
+                                                                Confirm Rejection
+                                                            </button>
+                                                        </div>
                                                     </div>
-                                                </div>
+                                                )
                                             )}
                                             {app.status === 'self_assessment_completed' && !selectedVisitDate && <p className="text-[10px] text-amber-600 font-semibold text-center">Select a visit date above before scheduling</p>}
                                         </div>
@@ -2995,10 +3443,10 @@ const AdminDashboard: React.FC = () => {
                                     )}
 
                                     {/* Visit scheduled notice */}
-                                    {(app.status === 'for_site_visit' || hasVisited) && app.visitData && (
+                                    {(app.status === 'for_site_visit' || app.status === 'revisit_approved' || hasVisited) && app.visitData?.scheduledDate && (
                                         <div className={`rounded-[10px] border p-5 ${app.status === 'vef_failed' ? 'bg-red-50 dark:bg-red-900/10 border-red-200 dark:border-red-500/20' : 'bg-amber-50 dark:bg-amber-900/10 border-amber-200 dark:border-amber-500/20'}`}>
                                             <p className={`text-xs font-bold uppercase tracking-widest mb-2 ${app.status === 'vef_failed' ? 'text-red-600' : 'text-amber-600'}`}>
-                                                {app.status === 'vef_failed' ? 'Site Visit Not Passed' : hasVisited ? 'Site Visit Completed' : 'Wait for Visitation'}
+                                                {app.status === 'vef_failed' ? 'Site Visit Not Passed' : hasVisited ? 'Site Visit Completed' : app.status === 'revisit_approved' ? 'Revisitation Approved' : 'Wait for Visitation'}
                                             </p>
                                             <p className="text-sm font-bold text-slate-900 dark:text-white mb-4">
                                                 {new Date(app.visitData.scheduledDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
@@ -3061,47 +3509,6 @@ const AdminDashboard: React.FC = () => {
                                             )}
                                         </div>
                                     )}
-
-                                    {/* Self-Assessment Summary — placed below the VEF card so the
-                                        inspector sees the applicant's own checklist right after the
-                                        actual visit form, for easy side-by-side comparison. Passing
-                                        self-assessment does not guarantee a passing VEF, and vice versa —
-                                        they're independent (owner-reported vs. PAHA-verified). */}
-                                    <div className="bg-white dark:bg-slate-800/40 rounded-[10px] border border-slate-200 dark:border-white/5 p-4">
-                                        <h3 className="text-xs font-bold uppercase tracking-widest text-slate-400 mb-4">
-                                            Self-Assessment Summary
-                                            {saData && <span className="ml-2 text-slate-300">· Submitted {new Date(saData.submittedAt).toLocaleDateString()}</span>}
-                                        </h3>
-                                        {!saData ? (
-                                            <p className="text-sm text-slate-400 italic">Self-assessment not yet submitted by the applicant.</p>
-                                        ) : (
-                                            <div className="space-y-3">
-                                                {ASSESSMENT_CATEGORIES.map(cat => {
-                                                    const stats = getCategoryStats(cat, checkedItems);
-                                                    const passed = stats.passed;
-                                                    return (
-                                                        <div key={cat.id} className="flex items-center gap-3">
-                                                            <div className={`size-7 rounded-[10px] flex items-center justify-center shrink-0 ${passed ? 'bg-emerald-100 dark:bg-emerald-900/30' : 'bg-amber-100 dark:bg-amber-900/30'}`}>
-                                                                <span className={`material-symbols-outlined text-sm ${passed ? 'text-emerald-600' : 'text-amber-600'}`}>
-                                                                    {passed ? 'check_circle' : 'warning'}
-                                                                </span>
-                                                            </div>
-                                                            <div className="flex-1 min-w-0">
-                                                                <p className="text-xs font-semibold text-slate-700 dark:text-slate-200 truncate">{cat.title}</p>
-                                                                <div className="h-1 bg-slate-100 dark:bg-slate-700 rounded-full mt-1 overflow-hidden">
-                                                                    <div className={`h-full rounded-full transition-all ${passed ? 'bg-emerald-500' : 'bg-amber-500'}`} style={{ width: `${stats.score}%` }} />
-                                                                </div>
-                                                            </div>
-                                                            <div className="text-right shrink-0">
-                                                                <span className={`text-sm font-black ${passed ? 'text-emerald-600' : 'text-amber-600'}`}>{stats.score}%</span>
-                                                                <p className={`text-[9px] font-bold uppercase ${passed ? 'text-emerald-500' : 'text-slate-400'}`}>{passed ? 'Pass' : `Need ${cat.passingScore}%`}</p>
-                                                            </div>
-                                                        </div>
-                                                    );
-                                                })}
-                                            </div>
-                                        )}
-                                    </div>
                                 </div>
                             </div>
 
@@ -3523,7 +3930,22 @@ const AdminDashboard: React.FC = () => {
             {selectedApplication && (() => {
                 const initials = `${selectedApplication.firstName?.[0] ?? ''}${selectedApplication.lastName?.[0] ?? ''}`.toUpperCase();
                 const linkedMember = members.find(m => m.email === selectedApplication.email);
-                
+                // Two things must be true before an admin can approve a membership
+                // application: (1) every required document for the applicant's chosen
+                // business structure is uploaded, (2) payment has been submitted.
+                // The live user profile is the authoritative copy of businessType/
+                // membershipDocuments — the application doc's copy is only a
+                // snapshot from signup and can go stale (e.g. after a business
+                // structure change), same pattern used for the accreditation panel.
+                const applicantProfile = usersMap[(selectedApplication as any).uid] || {};
+                const docsStatus = getMembershipDocsStatus(
+                    applicantProfile.businessType || (selectedApplication as any).businessType,
+                    applicantProfile.membershipDocuments || (selectedApplication as any).membershipDocuments
+                );
+                const paymentStatus = (selectedApplication as any).paymentStatus;
+                const paymentSubmitted = paymentStatus === 'paid' || paymentStatus === 'pending_manual';
+                const canApprove = docsStatus.complete && paymentSubmitted;
+
                 return (
                     <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
                         <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setSelectedApplication(null)}></div>
@@ -3545,20 +3967,15 @@ const AdminDashboard: React.FC = () => {
                                          <>
                                              <button
                                                  type="button"
-                                                 onClick={() => { updateApplicationStatus(selectedApplication.id, 'rejected'); setSelectedApplication(null); }}
-                                                 className="px-4 py-2 text-[10px] font-black uppercase tracking-widest text-rose-600 dark:text-rose-455 bg-rose-500/10 hover:bg-rose-500 hover:text-white rounded-xl transition-all flex items-center gap-1.5 active:scale-95 shadow-sm"
-                                             >
-                                                 <span className="material-symbols-outlined text-[13px]">cancel</span>
-                                                 Reject Candidate
-                                             </button>
-                                             <button
-                                                 type="button"
-                                                 onClick={async () => { 
-                                                     await handleManualSync(selectedApplication); 
-                                                     await updateApplicationStatus(selectedApplication.id, 'approved'); 
-                                                     setSelectedApplication(null); 
+                                                 disabled={!canApprove}
+                                                 title={!canApprove ? `Cannot approve yet — ${!docsStatus.complete ? `${docsStatus.uploadedCount}/${docsStatus.totalReqs} required documents uploaded` : ''}${!docsStatus.complete && !paymentSubmitted ? ' and ' : ''}${!paymentSubmitted ? 'payment not yet submitted' : ''}` : undefined}
+                                                 onClick={async () => {
+                                                     if (!canApprove) return;
+                                                     await handleManualSync(selectedApplication);
+                                                     await updateApplicationStatus(selectedApplication.id, 'approved');
+                                                     setSelectedApplication(null);
                                                  }}
-                                                 className="px-4 py-2 text-[10px] font-black uppercase tracking-widest text-emerald-600 dark:text-emerald-455 bg-emerald-500/10 hover:bg-emerald-500 hover:text-white rounded-xl transition-all flex items-center gap-1.5 active:scale-95 shadow-sm"
+                                                 className="px-4 py-2 text-[10px] font-black uppercase tracking-widest text-emerald-600 dark:text-emerald-455 bg-emerald-500/10 hover:bg-emerald-500 hover:text-white rounded-xl transition-all flex items-center gap-1.5 active:scale-95 shadow-sm disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-emerald-500/10 disabled:hover:text-emerald-600"
                                              >
                                                  <span className="material-symbols-outlined text-[13px]">check_circle</span>
                                                  Approve & Sync
@@ -3585,7 +4002,7 @@ const AdminDashboard: React.FC = () => {
                                         </div>
                                     )}
                                     <div>
-                                        <h2 className="text-xl font-bold text-slate-950 dark:text-white leading-tight">Dr. {selectedApplication.firstName} {selectedApplication.lastName}</h2>
+                                        <h2 className="text-xl font-bold text-slate-950 dark:text-white leading-tight">{selectedApplication.firstName} {selectedApplication.lastName}</h2>
                                         <p className="text-xs text-slate-400 font-semibold uppercase tracking-widest mt-0.5">{selectedApplication.type || selectedApplication.membershipType || 'Regular'} Membership Candidate</p>
                                         <div className="flex gap-2 mt-2">
                                             <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider ${
@@ -3704,6 +4121,14 @@ const AdminDashboard: React.FC = () => {
                                                     </p>
                                                     <p className="text-xs font-semibold text-slate-900 dark:text-white">{selectedApplication.representativeName || `${selectedApplication.firstName || ''} ${selectedApplication.lastName || ''}`.trim() || '—'}</p>
                                                 </div>
+                                                {selectedApplication.representativePhone && (
+                                                    <div>
+                                                        <p className="text-[9px] font-bold uppercase tracking-widest text-slate-455 mb-1 flex items-center gap-1.5">
+                                                            <span className="material-symbols-outlined text-[13px] text-indigo-500">call</span> Rep Phone Number
+                                                        </p>
+                                                        <p className="text-xs font-semibold text-slate-900 dark:text-white">{selectedApplication.representativePhone}</p>
+                                                    </div>
+                                                )}
                                                 <div>
                                                     <p className="text-[9px] font-bold uppercase tracking-widest text-slate-455 mb-1 flex items-center gap-1.5">
                                                         <span className="material-symbols-outlined text-[13px] text-violet-500">badge</span> Owner Name
@@ -3718,7 +4143,7 @@ const AdminDashboard: React.FC = () => {
                                                 </div>
                                                 <div>
                                                     <p className="text-[9px] font-bold uppercase tracking-widest text-slate-455 mb-1 flex items-center gap-1.5">
-                                                        <span className="material-symbols-outlined text-[13px] text-emerald-500">call</span> Mobile / Phone Number
+                                                        <span className="material-symbols-outlined text-[13px] text-emerald-500">call</span> Clinic Phone Number
                                                     </p>
                                                     <p className="text-xs font-semibold text-slate-900 dark:text-white">{selectedApplication.mobile || selectedApplication.phone || '—'}</p>
                                                 </div>
@@ -3764,6 +4189,91 @@ const AdminDashboard: React.FC = () => {
 
                                 {appModalTab === 'account' && (
                                     <div className="space-y-6 animate-fade-in">
+
+                                        {/* Approval requirements — documents + payment must both be
+                                            satisfied before this application can be approved. */}
+                                        <div className={`rounded-xl border p-4 space-y-2 ${canApprove ? 'bg-emerald-50 dark:bg-emerald-900/10 border-emerald-200 dark:border-emerald-500/20' : 'bg-amber-50 dark:bg-amber-900/10 border-amber-200 dark:border-amber-500/20'}`}>
+                                            <p className={`text-[10px] font-black uppercase tracking-widest ${canApprove ? 'text-emerald-700 dark:text-emerald-400' : 'text-amber-700 dark:text-amber-400'}`}>
+                                                Approval Requirements
+                                            </p>
+                                            <div className="flex items-center gap-2 text-xs">
+                                                <span className={`material-symbols-outlined text-base ${docsStatus.complete ? 'text-emerald-500' : 'text-amber-500'}`}>
+                                                    {docsStatus.complete ? 'check_circle' : 'radio_button_unchecked'}
+                                                </span>
+                                                <span className="text-slate-700 dark:text-slate-300 font-semibold">
+                                                    Required documents ({applicantProfile.businessType || (selectedApplication as any).businessType || 'no business structure selected'}): {docsStatus.uploadedCount}/{docsStatus.totalReqs} uploaded
+                                                </span>
+                                            </div>
+                                            <div className="flex items-center gap-2 text-xs">
+                                                <span className={`material-symbols-outlined text-base ${paymentSubmitted ? 'text-emerald-500' : 'text-amber-500'}`}>
+                                                    {paymentSubmitted ? 'check_circle' : 'radio_button_unchecked'}
+                                                </span>
+                                                <span className="text-slate-700 dark:text-slate-300 font-semibold">
+                                                    Payment {paymentSubmitted ? `submitted (${paymentStatus})` : 'not yet submitted'}
+                                                </span>
+                                            </div>
+                                            {!canApprove && (
+                                                <p className="text-[10px] text-amber-600 dark:text-amber-400 font-semibold pt-1">
+                                                    "Approve & Sync" stays disabled until both are satisfied.
+                                                </p>
+                                            )}
+                                        </div>
+
+                                        {selectedApplication.status === 'pending' && adminRole !== 'viewer' && (
+                                            <div className="p-4 rounded-xl border border-emerald-250 bg-emerald-50/30 dark:bg-emerald-950/10 flex items-center justify-between gap-4 shadow-sm">
+                                                <div className="flex-1">
+                                                    <p className="text-[10px] font-black uppercase tracking-widest text-emerald-700 dark:text-emerald-400">Admin Document Approval</p>
+                                                    <p className="text-xs text-slate-600 dark:text-slate-350 mt-0.5 leading-relaxed">
+                                                        Click here to verify all submitted onboarding documents and certify this clinic's membership.
+                                                    </p>
+                                                </div>
+                                                <button
+                                                    type="button"
+                                                    onClick={async () => {
+                                                        await handleManualSync(selectedApplication);
+                                                        await updateApplicationStatus(selectedApplication.id, 'approved');
+                                                        setSelectedApplication(null);
+                                                        showToast('Membership approved & verified successfully!', 'success');
+                                                    }}
+                                                    className="px-4 py-2.5 text-[10px] font-black uppercase tracking-widest text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition-all flex items-center gap-1.5 active:scale-95 shadow-md shrink-0 cursor-pointer"
+                                                >
+                                                    <span className="material-symbols-outlined text-[14px]">verified</span>
+                                                    Approve & Verify docs
+                                                </button>
+                                            </div>
+                                        )}
+
+                                        {/* Business structure change request — member asked to unlock
+                                            their locked structure choice; only an admin can approve it. */}
+                                        {applicantProfile.businessTypeChangeRequested && adminRole !== 'viewer' && (
+                                            <div className="rounded-xl border border-blue-200 dark:border-blue-500/20 bg-blue-50 dark:bg-blue-900/10 p-4 flex flex-wrap items-center justify-between gap-3">
+                                                <div>
+                                                    <p className="text-[10px] font-black uppercase tracking-widest text-blue-700 dark:text-blue-400">Business Structure Change Requested</p>
+                                                    <p className="text-xs text-slate-600 dark:text-slate-300 mt-0.5">Approving will unlock all 3 structure choices — the member must then upload 100% of the new structure's documents again.</p>
+                                                </div>
+                                                <button
+                                                    type="button"
+                                                    onClick={async () => {
+                                                        const uid = (selectedApplication as any).uid;
+                                                        if (!uid) return;
+                                                        await updateDoc(doc(db, 'users', uid), {
+                                                            businessType: '',
+                                                            businessTypeChangeRequested: false,
+                                                        });
+                                                        await notifyMember(uid, {
+                                                            type: 'membership',
+                                                            title: 'Business Structure Change Approved',
+                                                            body: 'PAHA approved your request — you can now pick a different business structure and upload its required documents.',
+                                                            link: 'membership',
+                                                        });
+                                                        showToast('Business structure choices unlocked for this member.', 'success');
+                                                    }}
+                                                    className="px-4 py-2 text-[10px] font-black uppercase tracking-widest text-blue-600 bg-blue-500/10 hover:bg-blue-500 hover:text-white rounded-xl transition-all active:scale-95 shadow-sm"
+                                                >
+                                                    Approve — Unlock Choices
+                                                </button>
+                                            </div>
+                                        )}
 
                                         {/* Attachments */}
                                         <div className="space-y-3">
@@ -3820,23 +4330,36 @@ const AdminDashboard: React.FC = () => {
                                                                         {MEMBERSHIP_DOC_LABELS[docId] || docId}
                                                                     </p>
                                                                     <div className="space-y-1.5">
-                                                                        {files.map((file: any, idx: number) => (
-                                                                            <a
-                                                                                key={idx}
-                                                                                href={file.url}
-                                                                                target="_blank"
-                                                                                rel="noopener noreferrer"
-                                                                                className="flex items-center gap-2.5 p-2 bg-white dark:bg-slate-800 rounded-lg border border-slate-100 dark:border-white/5 hover:border-primary transition-colors group"
-                                                                            >
-                                                                                <span className="material-symbols-outlined text-primary text-sm">
-                                                                                    {docId === 'walkthrough_video' ? 'movie' : 'description'}
-                                                                                </span>
-                                                                                <span className="flex-1 min-w-0 text-[11px] font-semibold text-slate-700 dark:text-slate-200 truncate group-hover:text-primary transition-colors">
-                                                                                    {file.name}
-                                                                                </span>
-                                                                                <span className="material-symbols-outlined text-slate-455 group-hover:text-primary text-xs">open_in_new</span>
-                                                                            </a>
-                                                                        ))}
+                                                                        {files.map((file: any, idx: number) => {
+                                                                            const isVideo = docId === 'walkthrough_video';
+                                                                            return (
+                                                                                <div key={idx} className="space-y-2">
+                                                                                    <a
+                                                                                        href={file.url}
+                                                                                        target="_blank"
+                                                                                        rel="noopener noreferrer"
+                                                                                        className="flex items-center gap-2.5 p-2 bg-white dark:bg-slate-800 rounded-lg border border-slate-100 dark:border-white/5 hover:border-primary transition-colors group"
+                                                                                    >
+                                                                                        <span className="material-symbols-outlined text-primary text-sm">
+                                                                                            {isVideo ? 'movie' : 'description'}
+                                                                                        </span>
+                                                                                        <span className="flex-1 min-w-0 text-[11px] font-semibold text-slate-700 dark:text-slate-200 truncate group-hover:text-primary transition-colors">
+                                                                                            {file.name}
+                                                                                        </span>
+                                                                                        <span className="material-symbols-outlined text-slate-455 group-hover:text-primary text-xs">open_in_new</span>
+                                                                                    </a>
+                                                                                    {isVideo && (
+                                                                                        <div className="mt-2 bg-slate-955 dark:bg-slate-900 rounded-xl overflow-hidden shadow-inner border border-slate-200/50 dark:border-white/5">
+                                                                                            <video 
+                                                                                                src={file.url} 
+                                                                                                controls 
+                                                                                                className="w-full max-h-56 object-contain bg-black"
+                                                                                            />
+                                                                                        </div>
+                                                                                    )}
+                                                                                </div>
+                                                                            );
+                                                                        })}
                                                                     </div>
                                                                 </div>
                                                             );

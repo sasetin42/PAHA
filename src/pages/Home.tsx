@@ -250,7 +250,7 @@ const Home: React.FC = () => {
                                         <div className="w-full h-full relative">
                                             <iframe
                                                 className="w-full h-full"
-                                                src="https://www.facebook.com/plugins/video.php?href=https%3A%2F%2Fwww.facebook.com%2Freel%2F7822934544469147&show_text=false&autoplay=true&mute=1"
+                                                src="https://www.facebook.com/plugins/video.php?href=https%3A%2F%2Fwww.facebook.com%2Freel%2F7822934544469147&show_text=false&autoplay=0&mute=0"
                                                 title="PAHA Reel"
                                                 style={{ border: 'none', overflow: 'hidden' }}
                                                 scrolling="no"
