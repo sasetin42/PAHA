@@ -21,6 +21,8 @@ import {
 } from '../types/accreditation';
 import { ASSESSMENT_CATEGORIES } from '../data/assessmentCategories';
 import { getEmbeddableUrl } from '../utils/portalUrl';
+import CalendarPicker from '../components/CalendarPicker';
+
 
 const STATUS_FILTER_OPTIONS: { value: WorkflowStatus | 'all'; label: string }[] = [
   { value: 'all', label: 'All Applications' },
@@ -597,12 +599,10 @@ const AccreditationManager: React.FC = () => {
                       <div className="grid grid-cols-2 gap-4 mb-4">
                         <div>
                           <label htmlFor="ac-visitDate" className="text-xs font-bold text-slate-500 uppercase mb-1 block">Date *</label>
-                          <input
+                          <CalendarPicker
                             id="ac-visitDate"
-                            type="date"
                             value={visitForm.date}
-                            onChange={(e) => setVisitForm(prev => ({ ...prev, date: e.target.value }))}
-                            className="w-full px-4 py-2 border border-slate-200 dark:border-slate-600 rounded-xl bg-white dark:bg-slate-900 focus:ring-2 focus:ring-[#2563EB] outline-none"
+                            onChange={(val) => setVisitForm(prev => ({ ...prev, date: val }))}
                           />
                         </div>
                         <div>

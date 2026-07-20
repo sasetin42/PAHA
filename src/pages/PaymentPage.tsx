@@ -732,7 +732,7 @@ const PaymentPage: React.FC = () => {
 
     if (checking || authLoading) {
         return (
-            <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50 dark:bg-[#0F172A] p-4 transition-colors duration-300">
+            <div className="min-h-screen flex flex-col items-center justify-center bg-white dark:bg-white p-4 transition-colors duration-300">
                 <div className="flex flex-col items-center max-w-lg w-full text-center space-y-6">
                     {/* Logo Section without background box and with modern breathing animation */}
                     <div className="relative flex items-center justify-center">
@@ -741,7 +741,7 @@ const PaymentPage: React.FC = () => {
                             alt="PAHA Logo" 
                             loading="eager"
                             fetchPriority="high"
-                            className="h-36 md:h-40 w-auto object-contain animate-logo-float" 
+                            className="h-40 md:h-48 w-auto object-contain animate-logo-float" 
                         />
                     </div>
 
@@ -753,7 +753,7 @@ const PaymentPage: React.FC = () => {
                             <span className="w-3 h-3 bg-primary rounded-full animate-modern-dot" style={{ animationDelay: '400ms' }}></span>
                         </div>
                         <p className="text-[10px] sm:text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-[0.2em] sm:tracking-[0.25em] whitespace-nowrap overflow-hidden text-ellipsis select-none">
-                            PAHA - Philippines Animal Hospital Association
+                            PAHA - PHILIPPINES ANIMAL HOSPITAL ASSOCIATION
                         </p>
                     </div>
                 </div>

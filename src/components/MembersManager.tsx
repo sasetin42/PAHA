@@ -8,6 +8,8 @@ import { db, auth } from '../config/firebase';
 import { signInWithEmailAndPassword } from 'firebase/auth';
 import InspectApplicationModal from './InspectApplicationModal';
 import FileViewerModal, { type ViewerFile } from './FileViewerModal';
+import CalendarPicker from './CalendarPicker';
+
 import { OFFICIAL_DIRECTORY, normalizeInstitutionName } from '../data/officialDirectory';
 import { WORKFLOW_STATUS_LABELS } from '../types/accreditation';
 
@@ -1348,30 +1350,24 @@ return (
 
                                                 <div className="grid grid-cols-2 gap-4">
                                                     <div className="space-y-1">
-                                                        <label htmlFor="mm-edit-joinedAt" className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block px-1">Member Since</label>
-                                                        <input
+                                                        <CalendarPicker
                                                             id="mm-edit-joinedAt"
-                                                            name="mm-edit-joinedAt"
-                                                            type="date"
-                                                            className="w-full bg-slate-50 dark:bg-slate-955 border border-slate-200 dark:border-white/10 rounded-[10px] px-4 py-2.5 text-slate-900 dark:text-white focus:border-primary/50 outline-none focus:ring-4 ring-primary/5 transition-all font-semibold text-xs"
+                                                            label="Member Since"
                                                             value={(formData as any).joinedAt ? new Date((formData as any).joinedAt).toISOString().split('T')[0] : ''}
-                                                            onChange={e => {
-                                                                const d = new Date(e.target.value);
+                                                            onChange={dateStr => {
+                                                                const d = new Date(dateStr);
                                                                 setFormData({ ...formData, joinedAt: isNaN(d.getTime()) ? '' : d.toISOString() } as any);
                                                             }}
                                                         />
                                                     </div>
 
                                                     <div className="space-y-1">
-                                                        <label htmlFor="mm-edit-renewalDate" className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block px-1">Next Renewal Date</label>
-                                                        <input
+                                                        <CalendarPicker
                                                             id="mm-edit-renewalDate"
-                                                            name="mm-edit-renewalDate"
-                                                            type="date"
-                                                            className="w-full bg-slate-50 dark:bg-slate-955 border border-slate-200 dark:border-white/10 rounded-[10px] px-4 py-2.5 text-slate-900 dark:text-white focus:border-primary/50 outline-none focus:ring-4 ring-primary/5 transition-all font-semibold text-xs"
+                                                            label="Next Renewal Date"
                                                             value={(formData as any).renewalDate ? new Date((formData as any).renewalDate).toISOString().split('T')[0] : ''}
-                                                            onChange={e => {
-                                                                const d = new Date(e.target.value);
+                                                            onChange={dateStr => {
+                                                                const d = new Date(dateStr);
                                                                 setFormData({ ...formData, renewalDate: isNaN(d.getTime()) ? '' : d.toISOString() } as any);
                                                             }}
                                                         />
@@ -1446,15 +1442,12 @@ return (
                                                     </div>
 
                                                     <div className="space-y-1">
-                                                        <label htmlFor="mm-edit-date" className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block px-1">Registration Date</label>
-                                                        <input
+                                                        <CalendarPicker
                                                             id="mm-edit-date"
-                                                            name="mm-edit-date"
-                                                            type="date"
-                                                            className="w-full bg-slate-50 dark:bg-slate-955 border border-slate-200 dark:border-white/10 rounded-[10px] px-4 py-2.5 text-slate-900 dark:text-white focus:border-primary/50 outline-none focus:ring-4 ring-primary/5 transition-all font-semibold text-xs"
+                                                            label="Registration Date"
                                                             value={(formData as any).date ? new Date((formData as any).date).toISOString().split('T')[0] : ''}
-                                                            onChange={e => {
-                                                                const d = new Date(e.target.value);
+                                                            onChange={dateStr => {
+                                                                const d = new Date(dateStr);
                                                                 setFormData({ ...formData, date: isNaN(d.getTime()) ? '' : d.toISOString() } as any);
                                                             }}
                                                         />

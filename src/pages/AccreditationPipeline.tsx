@@ -21,6 +21,8 @@ import { STANDARD_2026 } from '../data/accreditationStandard2026';
 import { sectionTotalPoints, computeGapSummary } from '../utils/evaluationScoring';
 import FileViewerModal, { type ViewerFile } from '../components/FileViewerModal';
 import { cleanPhone } from '../utils/phone';
+import CalendarPicker from '../components/CalendarPicker';
+
 
 // Required membership / business documents (relocated from the membership application form).
 // Full set across all business structures (Sole Proprietorship, Partnership, Corporation, VTH).
@@ -1668,13 +1670,10 @@ const [loiPdfUploading, setLoiPdfUploading] = useState(false);
                   {visitDates.map((date, idx) => (
                     <div key={idx}>
                       <label htmlFor={`pipeline-visitDate-${idx}`} className="text-xs font-bold text-slate-500 uppercase mb-1 block">Date {idx + 1}</label>
-                      <input
+                      <CalendarPicker
                         id={`pipeline-visitDate-${idx}`}
-                        type="date"
                         value={date}
-                        min={minVisitDateStr}
-                        onChange={(e) => {
-                          const val = e.target.value;
+                        onChange={(val) => {
                           const newErrors = [...visitDateErrors];
 
                           if (val && val <= todayStr) {
@@ -1702,9 +1701,6 @@ const [loiPdfUploading, setLoiPdfUploading] = useState(false);
                           newDates[idx] = val;
                           setVisitDates(newDates);
                         }}
-                        className={`w-full px-4 py-3 border rounded-xl bg-white dark:bg-slate-900 focus:ring-2 outline-none ${
-                          visitDateErrors[idx] ? 'border-red-400 focus:ring-red-400' : 'border-slate-200 dark:border-slate-600 focus:ring-[#2563EB]'
-                        }`}
                       />
                       {visitDateErrors[idx] && (
                         <p className="text-[11px] text-red-500 font-semibold mt-1 flex items-center gap-1">
@@ -1874,18 +1870,11 @@ const [loiPdfUploading, setLoiPdfUploading] = useState(false);
                       return (
                         <div key={idx}>
                           <label htmlFor={`pipeline-revisit-date-${idx}`} className="text-[10px] font-bold text-rose-600 dark:text-rose-400 uppercase tracking-widest block mb-1">Date {idx + 1}</label>
-                          <input
+                          <CalendarPicker
                             id={`pipeline-revisit-date-${idx}`}
-                            type="date"
                             value={date}
-                            min={minVisitDateStr}
-                            onChange={e => {
-                              const val = e.target.value;
+                            onChange={val => {
                               const newErrors = [...revisitDateErrors];
-                              // The native date picker can't grey out individual
-                              // days, so reject an already-used/duplicate date
-                              // right here — the field snaps back to its last
-                              // valid value instead of letting the bad pick stick.
                               if (val && val <= todayStr) {
                                 newErrors[idx] = 'Today or past dates cannot be selected.';
                                 setRevisitDateErrors(newErrors);
@@ -1907,7 +1896,6 @@ const [loiPdfUploading, setLoiPdfUploading] = useState(false);
                               next[idx] = val;
                               setRevisitDates(next);
                             }}
-                            className={`w-full px-4 py-3 rounded-xl border bg-white dark:bg-slate-900 text-sm text-slate-900 dark:text-white focus:ring-2 outline-none ${errorMsg ? 'border-red-400 focus:ring-red-400' : 'border-rose-200 dark:border-rose-700 focus:ring-rose-400/40'}`}
                           />
                           {errorMsg && (
                             <p className="text-[11px] text-red-500 font-semibold mt-1 flex items-center gap-1">

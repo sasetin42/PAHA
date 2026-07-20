@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { db, auth } from '../../config/firebase';
 import { collection, query, orderBy, onSnapshot, doc, getDoc } from 'firebase/firestore';
+import CalendarPicker from '../CalendarPicker';
+
 
 interface Transaction {
     id: string; // mchOrderId
@@ -399,23 +401,19 @@ const [diagnosticsModal, setDiagnosticsModal] = useState<any | null>(null);
                     </div>
                     <div>
                         <label htmlFor="pay-fromDate" className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block mb-1">From Date</label>
-                        <input
+                        <CalendarPicker
                             id="pay-fromDate"
-                            type="date"
                             value={dateRange.start}
-                            onChange={e => setDateRange(prev => ({ ...prev, start: e.target.value }))}
-                            className="w-full text-xs font-semibold px-3 py-2 rounded-[8px] bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-white/5 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-primary/20"
+                            onChange={val => setDateRange(prev => ({ ...prev, start: val }))}
                         />
                     </div>
                     <div>
                         <label htmlFor="pay-toDate" className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block mb-1">To Date</label>
                         <div className="flex gap-2">
-                            <input
+                            <CalendarPicker
                                 id="pay-toDate"
-                                type="date"
                                 value={dateRange.end}
-                                onChange={e => setDateRange(prev => ({ ...prev, end: e.target.value }))}
-                                className="w-full text-xs font-semibold px-3 py-2 rounded-[8px] bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-white/5 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-primary/20"
+                                onChange={val => setDateRange(prev => ({ ...prev, end: val }))}
                             />
                             <button
                                 onClick={handleExportCSV}

@@ -23,6 +23,8 @@ import AccreditationChecklist from '../components/AccreditationChecklist';
 import { STANDARD_2026 } from '../data/accreditationStandard2026';
 import { getMembershipDocsStatus, MEMBERSHIP_REQS_BY_BUSINESS_TYPE } from '../data/membershipRequirements';
 import { notifyMember } from '../utils/notify';
+import CalendarPicker from '../components/CalendarPicker';
+
 
 
 const MEMBERSHIP_DOC_LABELS: Record<string, string> = {
@@ -597,6 +599,7 @@ const AdminDashboard: React.FC = () => {
     }, [selectedApplication]);
     const [announcementModal, setAnnouncementModal] = useState<{ open: boolean; announcement?: any }>({ open: false });
     const [eventModal, setEventModal] = useState<{ open: boolean; event?: any; mode?: 'add' | 'edit' }>({ open: false });
+    const [eventDate, setEventDate] = useState('');
     const [viewingEventRegistrations, setViewingEventRegistrations] = useState<any | null>(null);
     const [selectedRegistration, setSelectedRegistration] = useState<any | null>(null);
     const [registrationEditModal, setRegistrationEditModal] = useState<{ open: boolean; registration?: any }>({ open: false });
@@ -643,9 +646,11 @@ const AdminDashboard: React.FC = () => {
         if (eventModal.open) {
             setEventDescription(eventModal.event?.description || '');
             setEventPreview(eventModal.event?.image || '');
+            setEventDate(eventModal.event?.date && !isNaN(Date.parse(eventModal.event.date)) ? new Date(eventModal.event.date).toISOString().split('T')[0] : eventModal.event?.date || '');
         } else {
             setEventDescription('');
             setEventPreview('');
+            setEventDate('');
             setHighlightsVideoURL(null);
             setHighlightsVideoPath(null);
             setEventGallery([]);
@@ -1643,20 +1648,18 @@ const AdminDashboard: React.FC = () => {
                                     </div>
                                     <div>
                                         <label className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block mb-1">From Date</label>
-                                        <input
-                                            type="date"
+                                        <CalendarPicker
+                                            id="ad-msg-start-date"
                                             value={msgStartDate}
-                                            onChange={(e) => setMsgStartDate(e.target.value)}
-                                            className="w-full text-xs font-semibold px-3 py-2 rounded-[8px] bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-white/5 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-primary/20"
+                                            onChange={setMsgStartDate}
                                         />
                                     </div>
                                     <div>
                                         <label className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block mb-1">To Date</label>
-                                        <input
-                                            type="date"
+                                        <CalendarPicker
+                                            id="ad-msg-end-date"
                                             value={msgEndDate}
-                                            onChange={(e) => setMsgEndDate(e.target.value)}
-                                            className="w-full text-xs font-semibold px-3 py-2 rounded-[8px] bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-white/5 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-primary/20"
+                                            onChange={setMsgEndDate}
                                         />
                                     </div>
                                 </div>
@@ -1912,20 +1915,18 @@ const AdminDashboard: React.FC = () => {
                                     </div>
                                     <div>
                                         <label className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block mb-1">From Date</label>
-                                        <input
-                                            type="date"
+                                        <CalendarPicker
+                                            id="ad-app-start-date"
                                             value={appStartDate}
-                                            onChange={(e) => setAppStartDate(e.target.value)}
-                                            className="w-full text-xs font-semibold px-3 py-2 rounded-[8px] bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-white/5 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-primary/20"
+                                            onChange={setAppStartDate}
                                         />
                                     </div>
                                     <div>
                                         <label className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block mb-1">To Date</label>
-                                        <input
-                                            type="date"
+                                        <CalendarPicker
+                                            id="ad-app-end-date"
                                             value={appEndDate}
-                                            onChange={(e) => setAppEndDate(e.target.value)}
-                                            className="w-full text-xs font-semibold px-3 py-2 rounded-[8px] bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-white/5 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-primary/20"
+                                            onChange={setAppEndDate}
                                         />
                                     </div>
                                 </div>

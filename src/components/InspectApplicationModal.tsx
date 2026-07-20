@@ -11,6 +11,8 @@ import { getEmbeddableUrl } from '../utils/portalUrl';
 import { cleanPhone } from '../utils/phone';
 import VisitingEvaluationModal from './VisitingEvaluationModal';
 import FileViewerModal, { type ViewerFile } from './FileViewerModal';
+import CalendarPicker from './CalendarPicker';
+
 
 const MEMBERSHIP_DOC_LABELS: Record<string, string> = {
     sec_articles: 'SEC Articles of Incorporation and By-Laws',
@@ -692,13 +694,12 @@ const InspectApplicationModal: React.FC<Props> = ({ appId, adminRole = 'editor',
                                             ) : (
                                                 <div className="mt-3 p-3 rounded-[10px] border border-slate-200 dark:border-white/10 space-y-2">
                                                     <label htmlFor="iap-propose-date" className="text-[10px] font-bold text-slate-500 uppercase tracking-widest block">Propose Alternate Date</label>
-                                                    <input
-                                                        id="iap-propose-date"
-                                                        type="date"
-                                                        value={proposeDate}
-                                                        min={minVisitDateStr}
-                                                        onChange={e => setProposeDate(e.target.value)}
-                                                        className="w-full px-3 py-2 text-sm border border-slate-200 dark:border-white/10 rounded-[10px] bg-white dark:bg-slate-900 outline-none focus:ring-2 focus:ring-primary/20"
+                                                    <CalendarPicker
+                                                         id="iap-propose-date"
+                                                         value={proposeDate}
+                                                         onChange={setProposeDate}
+                                                         minYear={new Date().getFullYear()}
+                                                         maxYear={new Date().getFullYear() + 2}
                                                     />
                                                     <div className="flex gap-2">
                                                         <button onClick={() => { setShowProposeDate(false); setProposeDate(''); }} className="flex-1 py-2 text-xs font-bold rounded-[10px] border border-slate-200 text-slate-500 hover:bg-slate-50 transition-colors">Cancel</button>
@@ -739,13 +740,12 @@ const InspectApplicationModal: React.FC<Props> = ({ appId, adminRole = 'editor',
                                     {adminRole !== 'viewer' && (
                                         <div className="space-y-2">
                                             <label htmlFor="iap-resend-date" className="text-[10px] font-bold text-slate-500 uppercase tracking-widest block">New Site Visit Date</label>
-                                            <input
-                                                id="iap-resend-date"
-                                                type="date"
-                                                value={resendDate}
-                                                min={minVisitDateStr}
-                                                onChange={e => setResendDate(e.target.value)}
-                                                className="w-full px-3 py-2 text-sm border border-slate-200 dark:border-white/10 rounded-[10px] bg-white dark:bg-slate-900 outline-none focus:ring-2 focus:ring-primary/20"
+                                            <CalendarPicker
+                                                 id="iap-resend-date"
+                                                 value={resendDate}
+                                                 onChange={setResendDate}
+                                                 minYear={new Date().getFullYear()}
+                                                 maxYear={new Date().getFullYear() + 2}
                                             />
                                             <button
                                                 onClick={handleSendRescheduledDate}
