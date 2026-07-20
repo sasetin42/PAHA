@@ -35,29 +35,27 @@ const VisitingEvaluationModal: React.FC<Props> = ({ isOpen, onClose, app, existi
     const [overrideOpen, setOverrideOpen] = useState(false);
     const [overrideRemarks, setOverrideRemarks] = useState('');
     const [failRemarks, setFailRemarks] = useState('');
-    const [logoData, setLogoData] = useState<{ base64: string; width: number; height: number } | null>(null);
+    const [logoBase64, setLogoBase64] = useState<string | null>(null);
 
+    // Preload logo for PDF generation
     useEffect(() => {
+        if (!isOpen) return;
         const img = new Image();
-        img.crossOrigin = 'anonymous';
+        img.crossOrigin = 'Anonymous';
         img.src = '/paha-logo.png';
         img.onload = () => {
             const canvas = document.createElement('canvas');
-            const maxW = 300;
-            const aspectRatio = img.height / img.width;
-            canvas.width = maxW;
-            canvas.height = maxW * aspectRatio;
+            canvas.width = img.width;
+            canvas.height = img.height;
             const ctx = canvas.getContext('2d');
-            if (ctx) {
-                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-                setLogoData({
-                    base64: canvas.toDataURL('image/png'),
-                    width: 90, // width in PDF points
-                    height: 90 * aspectRatio // height in PDF points
-                });
+            ctx?.drawImage(img, 0, 0);
+            try {
+                setLogoBase64(canvas.toDataURL('image/png'));
+            } catch (e) {
+                console.error('Failed to convert image to Base64', e);
             }
         };
-    }, []);
+    }, [isOpen]);
 
     // Load: existing saved form (fully editable, not read-only) or autosaved
     // draft for a brand-new evaluation (resume where the inspector left off).
@@ -129,18 +127,20 @@ const VisitingEvaluationModal: React.FC<Props> = ({ isOpen, onClose, app, existi
         const pageW = pdf.internal.pageSize.getWidth();
         let y = 40;
 
-        if (logoData) {
-            pdf.addImage(logoData.base64, 'PNG', (pageW - logoData.width) / 2, y, logoData.width, logoData.height);
-            y += logoData.height + 15;
+        if (logoBase64) {
+            const logoW = 80;
+            const logoH = 53;
+            pdf.addImage(logoBase64, 'PNG', (pageW - logoW) / 2, y, logoW, logoH);
+            y += logoH + 20;
         }
 
         pdf.setFont('helvetica', 'bold');
-        pdf.setFontSize(14);
+        pdf.setFontSize(16);
         pdf.text('PHILIPPINE ANIMAL HOSPITAL ASSOCIATION, INC.', pageW / 2, y, { align: 'center' });
-        y += 20;
-        pdf.setFontSize(11);
+        y += 22;
+        pdf.setFontSize(13);
         pdf.text('Visiting Evaluation Form — 2026 Accreditation Standard', pageW / 2, y, { align: 'center' });
-        y += 26;
+        y += 30;
 
         pdf.setFontSize(11);
         pdf.setFont('helvetica', 'normal');
