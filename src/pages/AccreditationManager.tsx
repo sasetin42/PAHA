@@ -173,7 +173,7 @@ const AccreditationManager: React.FC = () => {
         adminRemarks: review.remarks,
         reviewedAt: new Date().toISOString(),
         resubmitCount: existing?.resubmitCount || 0,
-        lastResubmitAt: existing?.lastResubmitAt,
+        lastResubmitAt: existing?.lastResubmitAt || null,
       };
       if (review.status === 'non_complied') hasNonComplied = true;
     });

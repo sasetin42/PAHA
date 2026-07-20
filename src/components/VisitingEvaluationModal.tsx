@@ -7,6 +7,7 @@ import type { AccreditationApplication, VisitingEvaluationForm } from '../types/
 import { STANDARD_2026 } from '../data/accreditationStandard2026';
 import { computeOverall, sectionTotalPoints, computeGapSummary } from '../utils/evaluationScoring';
 import AccreditationChecklist from './AccreditationChecklist';
+import CalendarPicker from './CalendarPicker';
 
 interface Props {
     isOpen: boolean;
@@ -35,27 +36,6 @@ const VisitingEvaluationModal: React.FC<Props> = ({ isOpen, onClose, app, existi
     const [overrideOpen, setOverrideOpen] = useState(false);
     const [overrideRemarks, setOverrideRemarks] = useState('');
     const [failRemarks, setFailRemarks] = useState('');
-    const [logoBase64, setLogoBase64] = useState<string | null>(null);
-
-    // Preload logo for PDF generation
-    useEffect(() => {
-        if (!isOpen) return;
-        const img = new Image();
-        img.crossOrigin = 'Anonymous';
-        img.src = '/paha-logo.png';
-        img.onload = () => {
-            const canvas = document.createElement('canvas');
-            canvas.width = img.width;
-            canvas.height = img.height;
-            const ctx = canvas.getContext('2d');
-            ctx?.drawImage(img, 0, 0);
-            try {
-                setLogoBase64(canvas.toDataURL('image/png'));
-            } catch (e) {
-                console.error('Failed to convert image to Base64', e);
-            }
-        };
-    }, [isOpen]);
 
     // Load: existing saved form (fully editable, not read-only) or autosaved
     // draft for a brand-new evaluation (resume where the inspector left off).
@@ -98,7 +78,6 @@ const VisitingEvaluationModal: React.FC<Props> = ({ isOpen, onClose, app, existi
     const gaps = useMemo(() => computeGapSummary(STANDARD_2026, checked), [checked]);
     // A failed visit is, by definition, one where the checklist ISN'T fully
     // checked — that's not a reason to block saving. This renders the full
-    // list of unchecked/non-compliant items so the inspector doesn't have to
     // retype what the checklist already shows.
     const autoGapsText = useMemo(() => {
         if (gaps.length === 0) return '';
@@ -117,22 +96,12 @@ const VisitingEvaluationModal: React.FC<Props> = ({ isOpen, onClose, app, existi
         ? (computedVerdict === 'passed' ? 'failed' : 'passed')
         : computedVerdict;
     const isOverridden = finalVerdict !== computedVerdict;
-    // Save is always available once a date is set — an incomplete checklist
-    // is expected on a FAIL, not a blocker. The only other requirement is the
-    // override justification, since that's a deliberate manual decision.
-    const canSave = !!dateVisited && (!overrideOpen || overrideRemarks.trim().length > 0);
+    const canSave = !overrideOpen || overrideRemarks.trim().length > 0;
 
     const buildPdfDoc = (version: number, verdict: 'passed' | 'failed', createdAt: Date) => {
         const pdf = new jsPDF({ unit: 'pt', format: 'a4' });
         const pageW = pdf.internal.pageSize.getWidth();
-        let y = 40;
-
-        if (logoBase64) {
-            const logoW = 80;
-            const logoH = 53;
-            pdf.addImage(logoBase64, 'PNG', (pageW - logoW) / 2, y, logoW, logoH);
-            y += logoH + 20;
-        }
+        let y = 50;
 
         pdf.setFont('helvetica', 'bold');
         pdf.setFontSize(16);
@@ -219,6 +188,10 @@ const VisitingEvaluationModal: React.FC<Props> = ({ isOpen, onClose, app, existi
     // sends the application back to the Site Visit stage (a physical revisit
     // is needed, not just new documents) instead of advancing to Stage 4.
     const handleSaveEvaluation = async () => {
+        if (!dateVisited) {
+            alert('Date Visited is required.');
+            return;
+        }
         if (!canSave || saving) return;
 
         setSaving(true);
@@ -374,12 +347,12 @@ const VisitingEvaluationModal: React.FC<Props> = ({ isOpen, onClose, app, existi
                             />
                         </div>
                         <div>
-                            <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">Date Visited</label>
-                            <input
-                                type="date"
+                            <CalendarPicker
+                                id="ev-dateVisited"
+                                label="Date Visited"
                                 value={dateVisited}
-                                onChange={e => setDateVisited(e.target.value)}
-                                className="w-full px-4 py-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10 text-slate-900 dark:text-white text-sm focus:ring-2 focus:ring-primary/30 focus:border-primary outline-none"
+                                onChange={setDateVisited}
+                                required
                             />
                         </div>
                     </div>

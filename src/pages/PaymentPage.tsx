@@ -8,6 +8,7 @@ import { db, storage } from '../config/firebase';
 import { doc, setDoc, getDoc, serverTimestamp, collection, getDocs, query, where, orderBy, limit, onSnapshot, updateDoc } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { notifyAdmin } from '../utils/notify';
+import CalendarPicker from '../components/CalendarPicker';
 
 type Step = 1 | 2;
 type PayOption = 'Pay Now' | 'Manual Payment';
@@ -99,29 +100,10 @@ const PaymentPage: React.FC = () => {
     const [isSexOpen, setIsSexOpen] = useState(false);
     const sexDropdownRef = useRef<HTMLDivElement>(null);
 
-    const [isCalendarOpen, setIsCalendarOpen] = useState(false);
-    const [currentMonth, setCurrentMonth] = useState(new Date().getMonth());
-    const [currentYear, setCurrentYear] = useState(new Date().getFullYear() - 30);
-    const calendarDropdownRef = useRef<HTMLDivElement>(null);
-
-    const [isMonthPickerOpen, setIsMonthPickerOpen] = useState(false);
-    const [isYearPickerOpen, setIsYearPickerOpen] = useState(false);
-    const monthDropdownRef = useRef<HTMLDivElement>(null);
-    const yearDropdownRef = useRef<HTMLDivElement>(null);
-
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
             if (sexDropdownRef.current && !sexDropdownRef.current.contains(event.target as Node)) {
                 setIsSexOpen(false);
-            }
-            if (calendarDropdownRef.current && !calendarDropdownRef.current.contains(event.target as Node)) {
-                setIsCalendarOpen(false);
-            }
-            if (monthDropdownRef.current && !monthDropdownRef.current.contains(event.target as Node)) {
-                setIsMonthPickerOpen(false);
-            }
-            if (yearDropdownRef.current && !yearDropdownRef.current.contains(event.target as Node)) {
-                setIsYearPickerOpen(false);
             }
         };
         document.addEventListener('mousedown', handleClickOutside);
@@ -1183,215 +1165,13 @@ const PaymentPage: React.FC = () => {
 
                                         {/* Form Details */}
                                         <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                             <div className="relative" ref={calendarDropdownRef}>
-                                                 <label htmlFor="birthdate" className={labelCls}>Date of Birth <span className="text-red-500">*</span></label>
-                                                 <button
-                                                     id="birthdate"
-                                                     type="button"
-                                                     className={`${inputCls} flex items-center justify-between cursor-pointer text-left transition-all mt-1.5 ${
-                                                         !birthdate ? 'text-slate-400 font-normal' : 'text-slate-800 font-semibold dark:text-white'
-                                                     }`}
-                                                     onClick={() => setIsCalendarOpen(!isCalendarOpen)}
-                                                 >
-                                                     <div className="flex items-center gap-2.5">
-                                                         <span className={`w-6 h-6 rounded-lg flex items-center justify-center text-xs border ${
-                                                             birthdate ? 'bg-primary/5 text-primary border-primary/20' : 'bg-slate-50 text-slate-400 border-slate-100'
-                                                         }`}>
-                                                             <span className="material-symbols-outlined text-[14px]">calendar_today</span>
-                                                         </span>
-                                                         <span>
-                                                             {birthdate 
-                                                                 ? new Date(birthdate).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }) 
-                                                                 : 'mm/dd/yyyy'
-                                                             }
-                                                         </span>
-                                                     </div>
-                                                     <span className={`material-symbols-outlined transition-transform duration-300 text-slate-400 ${isCalendarOpen ? 'text-primary' : ''}`}>
-                                                         calendar_month
-                                                     </span>
-                                                 </button>
-                                                 
-                                                 <div className={`absolute left-0 mt-2 bg-white border border-slate-100 rounded-2xl shadow-2xl z-[9999] p-4 w-72 transition-all duration-300 origin-top ${
-                                                     isCalendarOpen 
-                                                         ? 'opacity-100 translate-y-0 scale-100 pointer-events-auto' 
-                                                         : 'opacity-0 -translate-y-2 scale-95 pointer-events-none'
-                                                 }`}>
-                                                     {/* Calendar Header */}
-                                                     <div className="flex items-center justify-between mb-4">
-                                                         <button 
-                                                             type="button" 
-                                                             onClick={() => {
-                                                                 if (currentMonth === 0) {
-                                                                     setCurrentMonth(11);
-                                                                     setCurrentYear(y => y - 1);
-                                                                 } else {
-                                                                     setCurrentMonth(m => m - 1);
-                                                                 }
-                                                             }}
-                                                             className="p-1.5 hover:bg-slate-50 rounded-lg text-slate-500 hover:text-slate-800 transition-colors"
-                                                         >
-                                                             <span className="material-symbols-outlined text-sm font-bold">chevron_left</span>
-                                                         </button>
-
-                                                         <div className="flex gap-2">
-                                                             {/* Month Selector */}
-                                                             <div className="relative" ref={monthDropdownRef}>
-                                                                 <button
-                                                                     type="button"
-                                                                     className="w-28 px-3 py-1.5 text-xs font-bold text-slate-700 bg-slate-50 hover:bg-slate-100 border border-slate-200/60 rounded-xl flex items-center justify-between transition-all select-none cursor-pointer"
-                                                                     onClick={() => {
-                                                                         setIsMonthPickerOpen(!isMonthPickerOpen);
-                                                                         setIsYearPickerOpen(false);
-                                                                     }}
-                                                                 >
-                                                                     <span>{MONTHS[currentMonth]}</span>
-                                                                     <span className={`material-symbols-outlined text-[16px] text-slate-400 transition-transform duration-200 ${isMonthPickerOpen ? 'rotate-180 text-primary' : ''}`}>
-                                                                         keyboard_arrow_down
-                                                                     </span>
-                                                                 </button>
-                                                                 
-                                                                 <div className={`absolute left-0 mt-1 bg-white border border-slate-100 rounded-xl shadow-2xl z-[10005] max-h-48 overflow-y-auto w-full transition-all duration-200 origin-top ${
-                                                                     isMonthPickerOpen 
-                                                                         ? 'opacity-100 translate-y-0 scale-100 pointer-events-auto' 
-                                                                         : 'opacity-0 -translate-y-1 scale-95 pointer-events-none'
-                                                                 }`}>
-                                                                     <ul className="py-1 text-xs">
-                                                                         {MONTHS.map((m, idx) => (
-                                                                             <li key={m}>
-                                                                                 <button
-                                                                                     type="button"
-                                                                                     className={`w-full px-3 py-2 text-left transition-colors flex items-center justify-between ${
-                                                                                         currentMonth === idx 
-                                                                                             ? 'bg-primary/5 text-primary font-bold' 
-                                                                                             : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
-                                                                                     }`}
-                                                                                     onClick={() => {
-                                                                                         setCurrentMonth(idx);
-                                                                                         setIsMonthPickerOpen(false);
-                                                                                     }}
-                                                                                 >
-                                                                                     <span>{m}</span>
-                                                                                     {currentMonth === idx && (
-                                                                                         <span className="material-symbols-outlined text-primary text-xs font-bold">check</span>
-                                                                                     )}
-                                                                                 </button>
-                                                                             </li>
-                                                                         ))}
-                                                                     </ul>
-                                                                 </div>
-                                                             </div>
-
-                                                             {/* Year Selector */}
-                                                             <div className="relative" ref={yearDropdownRef}>
-                                                                 <button
-                                                                     type="button"
-                                                                     className="w-24 px-3 py-1.5 text-xs font-bold text-slate-700 bg-slate-50 hover:bg-slate-100 border border-slate-200/60 rounded-xl flex items-center justify-between transition-all select-none cursor-pointer"
-                                                                     onClick={() => {
-                                                                         setIsYearPickerOpen(!isYearPickerOpen);
-                                                                         setIsMonthPickerOpen(false);
-                                                                     }}
-                                                                 >
-                                                                     <span>{currentYear}</span>
-                                                                     <span className={`material-symbols-outlined text-[16px] text-slate-400 transition-transform duration-200 ${isYearPickerOpen ? 'rotate-180 text-primary' : ''}`}>
-                                                                         keyboard_arrow_down
-                                                                     </span>
-                                                                 </button>
-                                                                 
-                                                                 <div className={`absolute left-0 mt-1 bg-white border border-slate-100 rounded-xl shadow-2xl z-[10005] max-h-48 overflow-y-auto w-full transition-all duration-200 origin-top ${
-                                                                     isYearPickerOpen 
-                                                                         ? 'opacity-100 translate-y-0 scale-100 pointer-events-auto' 
-                                                                         : 'opacity-0 -translate-y-1 scale-95 pointer-events-none'
-                                                                 }`}>
-                                                                     <ul className="py-1 text-xs">
-                                                                         {YEARS.map((y) => (
-                                                                             <li key={y}>
-                                                                                 <button
-                                                                                     type="button"
-                                                                                     className={`w-full px-3 py-2 text-left transition-colors flex items-center justify-between ${
-                                                                                         currentYear === y 
-                                                                                             ? 'bg-primary/5 text-primary font-bold' 
-                                                                                             : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
-                                                                                     }`}
-                                                                                     onClick={() => {
-                                                                                         setCurrentYear(y);
-                                                                                         setIsYearPickerOpen(false);
-                                                                                     }}
-                                                                                 >
-                                                                                     <span>{y}</span>
-                                                                                     {currentYear === y && (
-                                                                                         <span className="material-symbols-outlined text-primary text-xs font-bold">check</span>
-                                                                                     )}
-                                                                                 </button>
-                                                                             </li>
-                                                                         ))}
-                                                                     </ul>
-                                                                 </div>
-                                                             </div>
-                                                         </div>
-
-                                                         <button 
-                                                             type="button" 
-                                                             onClick={() => {
-                                                                 if (currentMonth === 11) {
-                                                                     setCurrentMonth(0);
-                                                                     setCurrentYear(y => y + 1);
-                                                                 } else {
-                                                                     setCurrentMonth(m => m + 1);
-                                                                 }
-                                                             }}
-                                                             className="p-1.5 hover:bg-slate-50 rounded-lg text-slate-500 hover:text-slate-800 transition-colors"
-                                                         >
-                                                             <span className="material-symbols-outlined text-sm font-bold">chevron_right</span>
-                                                         </button>
-                                                     </div>
-
-                                                     <div className="text-sm font-extrabold text-slate-800 mb-3 px-1">
-                                                         {MONTHS[currentMonth]} {currentYear}
-                                                     </div>
-
-                                                     <div className="grid grid-cols-7 gap-1 text-center text-[10px] font-bold text-slate-400 mb-2">
-                                                         {['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'].map(d => (
-                                                             <div key={d} className="py-1">{d}</div>
-                                                         ))}
-                                                     </div>
-
-                                                     <div className="grid grid-cols-7 gap-1 text-center text-xs">
-                                                         {(() => {
-                                                             const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
-                                                             const firstDay = new Date(currentYear, currentMonth, 1).getDay();
-                                                             const cells = [];
-                                                             
-                                                             for (let i = 0; i < firstDay; i++) {
-                                                                 cells.push(<div key={`empty-${i}`} />);
-                                                             }
-                                                             
-                                                             for (let day = 1; day <= daysInMonth; day++) {
-                                                                 const dateStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-                                                                 const isSelected = birthdate === dateStr;
-                                                                 
-                                                                 cells.push(
-                                                                     <button
-                                                                         key={day}
-                                                                         type="button"
-                                                                         onClick={() => {
-                                                                             setBirthdate(dateStr);
-                                                                             setIsCalendarOpen(false);
-                                                                         }}
-                                                                         className={`py-1.5 rounded-lg font-semibold transition-all ${
-                                                                             isSelected 
-                                                                                 ? 'bg-primary text-white font-bold' 
-                                                                                 : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
-                                                                         }`}
-                                                                     >
-                                                                         {day}
-                                                                     </button>
-                                                                 );
-                                                             }
-                                                             return cells;
-                                                         })()}
-                                                     </div>
-                                                 </div>
-                                             </div>
+                                            <CalendarPicker
+                                                id="birthdate"
+                                                label="Date of Birth"
+                                                value={birthdate}
+                                                onChange={setBirthdate}
+                                                required
+                                            />
                                             <div className="relative" ref={sexDropdownRef}>
                                                 <label htmlFor="sex" className={labelCls}>Sex <span className="text-red-500">*</span></label>
                                                 <button

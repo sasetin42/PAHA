@@ -913,17 +913,17 @@ const formattedCardName = profile?.ownerName
             <aside className={`
                 ${sidebarCollapsed ? 'w-[72px]' : 'w-[260px]'}
                 ${mobileOpen ? 'flex' : 'hidden lg:flex'}
-                fixed inset-y-0 left-0 bg-white border-r border-slate-200/60 flex-col h-screen z-40 transition-all duration-300
+                fixed inset-y-0 left-0 bg-white dark:bg-white border-r border-slate-200/60 dark:border-slate-200/60 flex-col h-screen z-40 transition-all duration-300
             `}>
                 {/* Logo */}
-                <div className={`flex items-center h-16 border-b border-slate-100 px-4 ${sidebarCollapsed ? 'justify-center' : 'gap-3 px-5'}`}>
+                <div className={`flex items-center h-16 border-b border-slate-100 dark:border-slate-100 px-4 ${sidebarCollapsed ? 'justify-center' : 'gap-3 px-5'}`}>
                     <div className="size-9 bg-primary rounded-xl flex items-center justify-center shrink-0 shadow-lg shadow-primary/30">
                         <span className="material-symbols-outlined text-white text-lg">pets</span>
                     </div>
                     {!sidebarCollapsed && (
                         <div className="flex-1 min-w-0">
-                            <div className="text-slate-800 font-black text-sm tracking-tight leading-none">PAHA</div>
-                            <div className="text-primary text-[10px] font-black uppercase tracking-[0.2em] leading-none mt-0.5">MEMBER PORTAL</div>
+                            <div className="text-slate-800 dark:text-slate-800 font-black text-sm tracking-tight leading-none">PAHA</div>
+                            <div className="text-primary dark:text-primary text-[10px] font-black uppercase tracking-[0.2em] leading-none mt-0.5">MEMBER PORTAL</div>
                         </div>
                     )}
                     {!sidebarCollapsed && (
@@ -942,7 +942,7 @@ const formattedCardName = profile?.ownerName
                 <nav className="flex-1 py-4 overflow-y-auto scrollbar-hide">
                     {!sidebarCollapsed && (
                         <div className="px-4 mb-3">
-                            <span className="text-[9px] font-black text-slate-400 uppercase tracking-[0.3em]">Main Menu</span>
+                            <span className="text-[9px] font-black text-slate-400 dark:text-slate-400 uppercase tracking-[0.3em]">Main Menu</span>
                         </div>
                     )}
                     <div className="px-3 space-y-0.5">
@@ -957,20 +957,20 @@ const formattedCardName = profile?.ownerName
                                     title={item.disabled ? 'Available once your membership is approved' : (sidebarCollapsed ? item.label : undefined)}
                                     className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-semibold transition-all group relative border border-transparent
                                         ${item.disabled
-                                            ? 'opacity-50 cursor-not-allowed text-slate-300'
+                                            ? 'opacity-50 cursor-not-allowed text-slate-300 dark:text-slate-300'
                                             : isSelected
                                                 ? style.activeBg
-                                                : `text-slate-600 ${style.hoverBg}`
+                                                : `text-slate-600 dark:text-slate-600 hover:bg-slate-50 dark:hover:bg-slate-50/50 hover:text-slate-800 dark:hover:text-slate-800`
                                         }
                                         ${sidebarCollapsed ? 'justify-center' : ''}
                                     `}
                                 >
                                     <div className={`w-8 h-8 rounded-xl border flex items-center justify-center transition-colors shrink-0
                                         ${item.disabled
-                                            ? 'bg-slate-50 border-slate-100 text-slate-300'
+                                            ? 'bg-slate-50 dark:bg-slate-50 border-slate-100 dark:border-slate-100 text-slate-300 dark:text-slate-300'
                                             : isSelected
                                                 ? style.iconBg
-                                                : 'bg-slate-50 border-slate-100 text-slate-400 group-hover:bg-slate-100 group-hover:text-slate-600 group-hover:border-slate-200'
+                                                : 'bg-slate-50 dark:bg-slate-50 border-slate-100 dark:border-slate-100 text-slate-400 dark:text-slate-400 group-hover:bg-slate-100 dark:group-hover:bg-slate-100 group-hover:text-slate-600 dark:group-hover:text-slate-600 group-hover:border-slate-200 dark:group-hover:border-slate-200'
                                         }
                                     `}>
                                         <span className="material-symbols-outlined text-[18px]">
@@ -980,7 +980,7 @@ const formattedCardName = profile?.ownerName
                                     {!sidebarCollapsed && <span className="truncate">{item.label}</span>}
                                     {!sidebarCollapsed && !!item.badge && !item.disabled && (
                                         <span className={`ml-auto text-[10px] font-black px-2 py-0.5 rounded-full min-w-[20px] text-center
-                                            ${isSelected ? 'bg-primary text-white' : 'bg-slate-100 text-slate-600'}
+                                            ${isSelected ? 'bg-primary text-white' : 'bg-slate-100 dark:bg-slate-100 text-slate-600 dark:text-slate-600'}
                                         `}>{item.badge}</span>
                                     )}
                                     {sidebarCollapsed && !!item.badge && !item.disabled && (
@@ -994,15 +994,15 @@ const formattedCardName = profile?.ownerName
                 </nav>
 
                 {/* Profile + Logout */}
-                <div className="border-t border-slate-100">
+                <div className="border-t border-slate-100 dark:border-slate-100">
                     {!sidebarCollapsed && (
                         <div className="px-4 py-4 flex items-center gap-3">
-                            <div className="size-9 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary font-black text-sm shrink-0">
+                            <div className="size-9 rounded-xl bg-primary/10 dark:bg-primary/10 border border-primary/20 dark:border-primary/20 flex items-center justify-center text-primary dark:text-primary font-black text-sm shrink-0">
                                 {memberName.charAt(0).toUpperCase()}
                             </div>
                             <div className="flex-1 min-w-0">
-                                <div className="text-slate-800 font-bold text-sm truncate leading-tight">{memberName}</div>
-                                <div className="text-slate-400 text-[10px] uppercase tracking-wider truncate">{memberEmail}</div>
+                                <div className="text-slate-800 dark:text-slate-800 font-bold text-sm truncate leading-tight">{memberName}</div>
+                                <div className="text-slate-400 dark:text-slate-400 text-[10px] uppercase tracking-wider truncate">{memberEmail}</div>
                             </div>
                         </div>
                     )}
@@ -1010,9 +1010,9 @@ const formattedCardName = profile?.ownerName
                         <button
                             onClick={handleLogout}
                             title="Sign Out"
-                            className={`flex items-center gap-3 px-3 py-2 rounded-xl text-red-500 hover:bg-red-50 transition-all font-semibold text-sm group ${sidebarCollapsed ? 'justify-center w-full' : 'w-full'}`}
+                            className={`flex items-center gap-3 px-3 py-2 rounded-xl text-red-500 hover:bg-red-50 dark:hover:bg-red-50/50 transition-all font-semibold text-sm group ${sidebarCollapsed ? 'justify-center w-full' : 'w-full'}`}
                         >
-                            <div className="w-8 h-8 rounded-xl bg-red-50 border border-red-100/50 flex items-center justify-center text-red-500 group-hover:bg-red-100 shrink-0 transition-colors">
+                            <div className="w-8 h-8 rounded-xl bg-red-50 dark:bg-red-50 border border-red-100/50 dark:border-red-100/50 flex items-center justify-center text-red-500 group-hover:bg-red-100 shrink-0 transition-colors">
                                 <span className="material-symbols-outlined text-xl shrink-0 group-hover:scale-110 transition-transform duration-200">logout</span>
                             </div>
                             {!sidebarCollapsed && 'System Logout'}
