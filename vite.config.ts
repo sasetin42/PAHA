@@ -4,6 +4,18 @@ import react from '@vitejs/plugin-react'
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
+  optimizeDeps: {
+    include: [
+      'qrcode.react',
+      'react-router-dom',
+      'leaflet',
+      'react-leaflet',
+      'jspdf',
+      'gsap',
+      '@gsap/react',
+      'react-quill-new'
+    ]
+  },
   server: {
     port: 5180,
     strictPort: true,

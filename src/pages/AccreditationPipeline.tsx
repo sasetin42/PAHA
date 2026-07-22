@@ -18,11 +18,11 @@ import {
 } from '../types/accreditation';
 import { ASSESSMENT_CATEGORIES, getCategoryStats } from '../data/assessmentCategories';
 import { STANDARD_2026 } from '../data/accreditationStandard2026';
+import { cleanPhoneInput, formatPhoneForDB } from '../utils/phone';
 import { sectionTotalPoints, computeGapSummary } from '../utils/evaluationScoring';
 import FileViewerModal, { type ViewerFile } from '../components/FileViewerModal';
+import { useAppearance } from '../hooks/useAppearance';
 import { cleanPhone } from '../utils/phone';
-import CalendarPicker from '../components/CalendarPicker';
-
 
 // Required membership / business documents (relocated from the membership application form).
 // Full set across all business structures (Sole Proprietorship, Partnership, Corporation, VTH).
@@ -52,6 +52,7 @@ const REQS_BY_BUSINESS_TYPE: Record<string, string[]> = {
 const AccreditationPipeline: React.FC<{ embedded?: boolean }> = ({ embedded = false }) => {
   const navigate = useNavigate();
   const { user, profile } = useAuth();
+  const { logoUrl } = useAppearance();
 
   const [application, setApplication] = useState<AccreditationApplication | null>(null);
   const [viewerFile, setViewerFile] = useState<ViewerFile | null>(null);
@@ -165,6 +166,9 @@ const [loiPdfUploading, setLoiPdfUploading] = useState(false);
         }
       }
       setLoading(false);
+    }, (err) => {
+      console.error('[AccreditationPipeline] Applications error:', err);
+      setLoading(false);
     });
 
     const unsubAccSettings = onSnapshot(doc(db, 'systemSettings', 'accreditation'), (snap) => {
@@ -175,6 +179,8 @@ const [loiPdfUploading, setLoiPdfUploading] = useState(false);
         setLiveAccreditationProcessingFee(feeEnabled ? (data.processingFee !== undefined ? data.processingFee : 2500) : 0);
         setLiveAccreditationValidityYears(data.validityYears || 3);
       }
+    }, (err) => {
+      console.error('[AccreditationPipeline] Acc settings error:', err);
     });
 
     return () => {
@@ -448,18 +454,9 @@ const [loiPdfUploading, setLoiPdfUploading] = useState(false);
     setSubmitting(true);
 
     const loiRef = `PAHA-LOI-${new Date().getFullYear()}-${Date.now().toString(36).toUpperCase()}`;
-    // Normalize first — loiForm.phone may already carry a +63/63/0 prefix if the
-    // applicant never touched the field (pre-filled straight from their profile),
-    // so blindly prepending +63 here would double it up.
-    const rawPhone = loiForm.phone
-      ? (loiForm.phone.startsWith('+63') ? loiForm.phone.slice(3)
-        : loiForm.phone.startsWith('63') && loiForm.phone.length === 12 ? loiForm.phone.slice(2)
-        : loiForm.phone.startsWith('0') && loiForm.phone.length === 11 ? loiForm.phone.slice(1)
-        : loiForm.phone)
-      : '';
     const loiData: LOIData = {
       ...loiForm,
-      phone: rawPhone ? `+63${rawPhone}` : '',
+      phone: formatPhoneForDB(loiForm.phone),
       preferredVisitDates: [],
       loiRef,
     };
@@ -812,7 +809,7 @@ const [loiPdfUploading, setLoiPdfUploading] = useState(false);
 
       await updateDoc(doc(db, 'accreditation_applications', application.id), {
         paymentData,
-        status: 'paid',
+        status: 'payment_submitted',
         updatedAt: serverTimestamp(),
       });
 
@@ -834,7 +831,7 @@ const [loiPdfUploading, setLoiPdfUploading] = useState(false);
         });
       }
 
-      setApplication(prev => prev ? { ...prev, paymentData, status: 'paid' } : null);
+      setApplication(prev => prev ? { ...prev, paymentData, status: 'payment_submitted' } : null);
       setSuccessMessage('Payment proof submitted!');
       setShowSuccessModal(true);
       setPaymentProof(null);
@@ -899,7 +896,7 @@ const [loiPdfUploading, setLoiPdfUploading] = useState(false);
 
     // Final review outcomes
     if (currentStatus === 'needs_compliance') return 5; // Rejected at final review — show on Stage 5
-    if (currentStatus === 'approved' || currentStatus === 'for_payment') return 7; // Approved -> Stage 7 (Approved. For Payment)
+    if (currentStatus === 'approved' || currentStatus === 'for_payment' || currentStatus === 'payment_submitted') return 7; // Approved -> Stage 7 (Approved. For Payment)
     if (currentStatus === 'paid') return 7;
     if (application?.paymentData?.confirmedAt) return 8;
     
@@ -961,9 +958,10 @@ const [loiPdfUploading, setLoiPdfUploading] = useState(false);
                 { stage: 3, label: 'Site Visit', icon: 'event', available: !isRejected && (!!application.visitData || currentStage >= 3) },
                 { stage: 4, label: 'Compliance Docs', icon: 'folder_open', available: !isRejected && currentStage >= 4 },
                 { stage: 5, label: 'Admin Review', icon: 'rate_review', available: !isRejected && currentStage >= 5 },
-                { stage: 6, label: 'Payment', icon: 'payments', available: !isRejected && !!application.paymentData },
+                { stage: 6, label: 'Payment', icon: 'payments', available: !isRejected && (!!application.paymentData || currentStatus === 'for_payment' || currentStage >= 7) },
               ].map(({ stage, label, icon, available }) => {
-                const isActive = (viewingStage ?? displayStage) === stage;
+                const activeMenuStage = (viewingStage ?? (displayStage === 7 ? 6 : displayStage));
+                const isActive = activeMenuStage === stage;
                 return (
                   <button
                     key={stage}
@@ -1295,10 +1293,10 @@ const [loiPdfUploading, setLoiPdfUploading] = useState(false);
 
             {/* Replace LOI PDF (optional) */}
             <div className="p-4 border-2 border-dashed border-slate-200 dark:border-slate-600 rounded-xl">
-              <label className="text-sm font-bold text-slate-700 dark:text-slate-300 mb-2 flex items-center gap-2">
+              <p className="text-sm font-bold text-slate-700 dark:text-slate-300 mb-2 flex items-center gap-2">
                 <span className="material-symbols-outlined text-[#2563EB] text-sm">upload_file</span>
                 Replace LOI PDF <span className="text-xs font-normal text-slate-400 ml-1">— Optional, only if the document needs fixing</span>
-              </label>
+              </p>
               {loiPdfFile ? (
                 <div className="flex items-center gap-3 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-700">
                   <span className="material-symbols-outlined text-[#2563EB]">picture_as_pdf</span>
@@ -1315,6 +1313,8 @@ const [loiPdfUploading, setLoiPdfUploading] = useState(false);
                   <span className="material-symbols-outlined text-slate-400">description</span>
                   <span className="text-sm text-slate-500">{application.loiPdfUrl ? 'Click to replace the existing PDF' : 'Click to select PDF file'}</span>
                   <input
+                    id="pipeline-loiPdfReplace"
+                    name="pipelineLoiPdfReplace"
                     type="file"
                     accept="application/pdf"
                     className="hidden"
@@ -1395,6 +1395,7 @@ const [loiPdfUploading, setLoiPdfUploading] = useState(false);
                   ) : (
                     <input
                       id="pipeline-repName"
+                      name="representativeName"
                       type="text"
                       value={loiForm.representativeName}
                       onChange={(e) => setLoiForm(prev => ({ ...prev, representativeName: e.target.value }))}
@@ -1408,6 +1409,7 @@ const [loiPdfUploading, setLoiPdfUploading] = useState(false);
                   {reps.length > 0 && reps.find(r => r.name === loiForm.representativeName) ? (
                     <select
                       id="pipeline-repTitle"
+                      name="representativeTitle"
                       value={loiForm.representativeTitle}
                       onChange={(e) => setLoiForm(prev => ({ ...prev, representativeTitle: e.target.value }))}
                       className="w-full px-4 py-3 border border-slate-200 dark:border-slate-600 rounded-xl bg-white dark:bg-slate-900 focus:ring-2 focus:ring-[#2563EB] outline-none"
@@ -1420,6 +1422,7 @@ const [loiPdfUploading, setLoiPdfUploading] = useState(false);
                   ) : (
                     <input
                       id="pipeline-repTitle"
+                      name="representativeTitle"
                       type="text"
                       value={loiForm.representativeTitle}
                       onChange={(e) => setLoiForm(prev => ({ ...prev, representativeTitle: e.target.value }))}
@@ -1433,6 +1436,7 @@ const [loiPdfUploading, setLoiPdfUploading] = useState(false);
                   <input
                     type="text"
                     id="pipeline-prcLicense"
+                    name="prcLicenseNo"
                     required
                     value={loiForm.prcLicenseNo}
                     onChange={(e) => {
@@ -1455,6 +1459,7 @@ const [loiPdfUploading, setLoiPdfUploading] = useState(false);
                   <label htmlFor="pipeline-clinicName" className="text-sm font-bold text-slate-700 dark:text-slate-300 mb-1 block">Clinic Name *</label>
                   <input
                     id="pipeline-clinicName"
+                    name="clinicName"
                     type="text"
                     value={loiForm.clinicName}
                     onChange={(e) => setLoiForm(prev => ({ ...prev, clinicName: e.target.value }))}
@@ -1468,6 +1473,7 @@ const [loiPdfUploading, setLoiPdfUploading] = useState(false);
                   </label>
                   <input
                     id="pipeline-clinicAddress"
+                    name="clinicAddress"
                     type="text"
                     value={loiForm.clinicAddress}
                     readOnly
@@ -1485,6 +1491,7 @@ const [loiPdfUploading, setLoiPdfUploading] = useState(false);
                   <label htmlFor="pipeline-email" className="text-sm font-bold text-slate-700 dark:text-slate-300 mb-1 block">Email *</label>
                   <input
                     id="pipeline-email"
+                    name="email"
                     type="email"
                     value={loiForm.email}
                     onChange={(e) => setLoiForm(prev => ({ ...prev, email: e.target.value }))}
@@ -1509,12 +1516,13 @@ const [loiPdfUploading, setLoiPdfUploading] = useState(false);
                     </div>
                     <input
                       id="pipeline-phone"
+                      name="phone"
                       type="tel"
-                      value={loiForm.phone ? (loiForm.phone.startsWith('+63') ? loiForm.phone.slice(3) : loiForm.phone.startsWith('63') && loiForm.phone.length === 12 ? loiForm.phone.slice(2) : loiForm.phone.startsWith('0') && loiForm.phone.length === 11 ? loiForm.phone.slice(1) : loiForm.phone) : ''}
+                      value={cleanPhoneInput(loiForm.phone)}
                       onChange={(e) => {
-                        const cleaned = e.target.value.replace(/\D/g, '').slice(0, 10);
-                        setLoiForm(prev => ({ ...prev, phone: cleaned }));
+                        setLoiForm(prev => ({ ...prev, phone: cleanPhoneInput(e.target.value) }));
                       }}
+                      maxLength={10}
                       className="w-full pl-16 pr-4 py-3 border border-slate-200 dark:border-slate-600 rounded-xl bg-white dark:bg-slate-900 focus:ring-2 focus:ring-[#2563EB] outline-none"
                     />
                   </div>
@@ -1523,10 +1531,10 @@ const [loiPdfUploading, setLoiPdfUploading] = useState(false);
 
               {/* LOI PDF Upload */}
               <div className="p-4 border-2 border-dashed border-slate-200 dark:border-slate-600 rounded-xl">
-                <label className="text-sm font-bold text-slate-700 dark:text-slate-300 mb-2 flex items-center gap-2">
+                <p className="text-sm font-bold text-slate-700 dark:text-slate-300 mb-2 flex items-center gap-2">
                   <span className="material-symbols-outlined text-[#2563EB] text-sm">upload_file</span>
                   Upload Letter of Intent (PDF) <span className="text-xs font-normal text-slate-400 ml-1">— Optional but recommended</span>
-                </label>
+                </p>
                 {loiPdfFile ? (
                   <div className="flex items-center gap-3 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-700">
                     <span className="material-symbols-outlined text-[#2563EB]">picture_as_pdf</span>
@@ -1543,6 +1551,8 @@ const [loiPdfUploading, setLoiPdfUploading] = useState(false);
                     <span className="material-symbols-outlined text-slate-400">description</span>
                     <span className="text-sm text-slate-500">Click to select PDF file</span>
                     <input
+                      id="pipeline-loiPdf"
+                      name="loiPdfFile"
                       type="file"
                       accept="application/pdf"
                       className="hidden"
@@ -1553,8 +1563,10 @@ const [loiPdfUploading, setLoiPdfUploading] = useState(false);
               </div>
 
               <div>
-                <label className="flex items-start gap-3 cursor-pointer">
+                <label htmlFor="pipeline-declaration" className="flex items-start gap-3 cursor-pointer">
                   <input
+                    id="pipeline-declaration"
+                    name="declarationChecked"
                     type="checkbox"
                     checked={loiForm.declarationChecked}
                     onChange={(e) => setLoiForm(prev => ({ ...prev, declarationChecked: e.target.checked }))}
@@ -1663,17 +1675,20 @@ const [loiPdfUploading, setLoiPdfUploading] = useState(false);
               </p>
 
               <div>
-                <label className="text-sm font-bold text-slate-700 dark:text-slate-300 mb-3 block">
+                <p className="text-sm font-bold text-slate-700 dark:text-slate-300 mb-3 block">
                   Preferred Site Visit Dates (3 dates required) *
-                </label>
+                </p>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   {visitDates.map((date, idx) => (
                     <div key={idx}>
                       <label htmlFor={`pipeline-visitDate-${idx}`} className="text-xs font-bold text-slate-500 uppercase mb-1 block">Date {idx + 1}</label>
-                      <CalendarPicker
+                      <input
                         id={`pipeline-visitDate-${idx}`}
+                        type="date"
                         value={date}
-                        onChange={(val) => {
+                        min={minVisitDateStr}
+                        onChange={(e) => {
+                          const val = e.target.value;
                           const newErrors = [...visitDateErrors];
 
                           if (val && val <= todayStr) {
@@ -1701,6 +1716,9 @@ const [loiPdfUploading, setLoiPdfUploading] = useState(false);
                           newDates[idx] = val;
                           setVisitDates(newDates);
                         }}
+                        className={`w-full px-4 py-3 border rounded-xl bg-white dark:bg-slate-900 focus:ring-2 outline-none ${
+                          visitDateErrors[idx] ? 'border-red-400 focus:ring-red-400' : 'border-slate-200 dark:border-slate-600 focus:ring-[#2563EB]'
+                        }`}
                       />
                       {visitDateErrors[idx] && (
                         <p className="text-[11px] text-red-500 font-semibold mt-1 flex items-center gap-1">
@@ -1796,44 +1814,83 @@ const [loiPdfUploading, setLoiPdfUploading] = useState(false);
         {viewingStage === null && application?.visitData?.scheduledDate && !application.visitData.completedAt && !hasVisited && (
           <div className="space-y-6">
             <div className="bg-white dark:bg-slate-800 rounded-3xl p-6 md:p-8 shadow-lg border border-slate-200 dark:border-slate-700">
-              <h2 className="text-xl font-bold text-slate-800 dark:text-white mb-4 flex items-center gap-2">
-                <span className="material-symbols-outlined text-[#2563EB]">event_available</span>
+              <h2 className="text-xl font-black text-slate-800 dark:text-white mb-6 flex items-center gap-3">
+                <span className="material-symbols-outlined text-primary bg-primary/10 p-2 rounded-xl">event_available</span>
                 Site Visit Scheduled
               </h2>
-              <div className="bg-blue-50 dark:bg-blue-900/20 rounded-2xl p-6 border border-blue-200 dark:border-blue-800">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="text-xs font-bold text-slate-500 uppercase">Date</label>
-                    <p className="font-bold text-slate-800 dark:text-white text-lg">
-                      {new Date(application.visitData.scheduledDate).toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
-                    </p>
+              <div className="bg-gradient-to-br from-slate-50 to-blue-50/30 dark:from-slate-900/60 dark:to-slate-850/40 rounded-2xl p-5 sm:p-6 border border-slate-200 dark:border-white/5 shadow-inner">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
+                  
+                  {/* Date */}
+                  <div className="flex items-center gap-4 p-4 rounded-xl bg-white dark:bg-[#1E293B]/40 border border-slate-100 dark:border-white/5 hover:border-blue-500/20 hover:shadow-md transition-all duration-300">
+                    <div className="size-11 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 shadow-lg shadow-blue-500/25 flex items-center justify-center text-white shrink-0">
+                      <span className="material-symbols-outlined text-xl" style={{ fontVariationSettings: "'FILL' 1" }}>calendar_today</span>
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest leading-none mb-1">Date</p>
+                      <p className="font-black text-slate-800 dark:text-white text-sm sm:text-base leading-tight">
+                        {new Date(application.visitData.scheduledDate).toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+                      </p>
+                    </div>
                   </div>
-                  <div>
-                    <label className="text-xs font-bold text-slate-500 uppercase">Time</label>
-                    <p className="font-bold text-slate-800 dark:text-white text-lg">
-                      {(() => {
-                        const t = application.visitData!.scheduledTime;
-                        if (!t) return 'Expect site visit from 9:00 AM - 3:00 PM';
-                        const parsed = new Date(`2000-01-01T${t}`);
-                        return isNaN(parsed.getTime())
-                          ? 'Expect site visit from 9:00 AM - 3:00 PM'
-                          : parsed.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
-                      })()}
-                    </p>
+
+                  {/* Time */}
+                  <div className="flex items-center gap-4 p-4 rounded-xl bg-white dark:bg-[#1E293B]/40 border border-slate-100 dark:border-white/5 hover:border-orange-500/20 hover:shadow-md transition-all duration-300">
+                    <div className="size-11 rounded-xl bg-gradient-to-br from-orange-500 to-amber-600 shadow-lg shadow-orange-500/25 flex items-center justify-center text-white shrink-0">
+                      <span className="material-symbols-outlined text-xl" style={{ fontVariationSettings: "'FILL' 1" }}>schedule</span>
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest leading-none mb-1">Time</p>
+                      <p className="font-black text-slate-800 dark:text-white text-sm sm:text-base leading-tight">
+                        {(() => {
+                          const t = application.visitData!.scheduledTime;
+                          if (!t) return 'Expect site visit from 9:00 AM - 3:00 PM';
+                          const parsed = new Date(`2000-01-01T${t}`);
+                          return isNaN(parsed.getTime())
+                            ? 'Expect site visit from 9:00 AM - 3:00 PM'
+                            : parsed.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+                        })()}
+                      </p>
+                    </div>
                   </div>
-                  <div>
-                    <label className="text-xs font-bold text-slate-500 uppercase">PAHA Inspector</label>
-                    <p className="font-bold text-slate-800 dark:text-white">{application.visitData.inspectorName}</p>
+
+                  {/* Inspector */}
+                  <div className="flex items-center gap-4 p-4 rounded-xl bg-white dark:bg-[#1E293B]/40 border border-slate-100 dark:border-white/5 hover:border-violet-500/20 hover:shadow-md transition-all duration-300">
+                    <div className="size-11 rounded-xl bg-gradient-to-br from-violet-500 to-purple-600 shadow-lg shadow-violet-500/25 flex items-center justify-center text-white shrink-0">
+                      <span className="material-symbols-outlined text-xl" style={{ fontVariationSettings: "'FILL' 1" }}>badge</span>
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest leading-none mb-1">PAHA Inspector</p>
+                      <p className="font-black text-slate-800 dark:text-white text-sm sm:text-base leading-tight">
+                        {application.visitData.inspectorName || 'Assigned Officer'}
+                      </p>
+                    </div>
                   </div>
-                  <div>
-                    <label className="text-xs font-bold text-slate-500 uppercase">Status</label>
-                    <p className="font-bold text-emerald-600">Confirmed</p>
+
+                  {/* Status */}
+                  <div className="flex items-center gap-4 p-4 rounded-xl bg-white dark:bg-[#1E293B]/40 border border-slate-100 dark:border-white/5 hover:border-emerald-500/20 hover:shadow-md transition-all duration-300">
+                    <div className="size-11 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 shadow-lg shadow-emerald-500/25 flex items-center justify-center text-white shrink-0">
+                      <span className="material-symbols-outlined text-xl" style={{ fontVariationSettings: "'FILL' 1" }}>verified</span>
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest leading-none mb-1">Status</p>
+                      <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+                        <span className="size-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                        Confirmed
+                      </span>
+                    </div>
                   </div>
+
                 </div>
                 {application.visitData.notes && (
-                  <div className="mt-4 pt-4 border-t border-blue-200 dark:border-blue-800">
-                    <label className="text-xs font-bold text-slate-500 uppercase block mb-1">Notes</label>
-                    <p className="text-sm text-slate-700 dark:text-slate-300">{application.visitData.notes}</p>
+                  <div className="mt-6 pt-5 border-t border-slate-200 dark:border-white/5">
+                    <div className="flex items-start gap-3 p-4 bg-white dark:bg-[#1E293B]/30 border border-slate-100 dark:border-white/5 rounded-xl">
+                      <span className="material-symbols-outlined text-teal-500 flex-shrink-0" style={{ fontVariationSettings: "'FILL' 1" }}>rate_review</span>
+                      <div>
+                        <p className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest leading-none mb-1.5">Notes</p>
+                        <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed font-semibold">{application.visitData.notes}</p>
+                      </div>
+                    </div>
                   </div>
                 )}
               </div>
@@ -1870,11 +1927,18 @@ const [loiPdfUploading, setLoiPdfUploading] = useState(false);
                       return (
                         <div key={idx}>
                           <label htmlFor={`pipeline-revisit-date-${idx}`} className="text-[10px] font-bold text-rose-600 dark:text-rose-400 uppercase tracking-widest block mb-1">Date {idx + 1}</label>
-                          <CalendarPicker
+                          <input
                             id={`pipeline-revisit-date-${idx}`}
+                            type="date"
                             value={date}
-                            onChange={val => {
+                            min={minVisitDateStr}
+                            onChange={e => {
+                              const val = e.target.value;
                               const newErrors = [...revisitDateErrors];
+                              // The native date picker can't grey out individual
+                              // days, so reject an already-used/duplicate date
+                              // right here — the field snaps back to its last
+                              // valid value instead of letting the bad pick stick.
                               if (val && val <= todayStr) {
                                 newErrors[idx] = 'Today or past dates cannot be selected.';
                                 setRevisitDateErrors(newErrors);
@@ -1896,6 +1960,7 @@ const [loiPdfUploading, setLoiPdfUploading] = useState(false);
                               next[idx] = val;
                               setRevisitDates(next);
                             }}
+                            className={`w-full px-4 py-3 rounded-xl border bg-white dark:bg-slate-900 text-sm text-slate-900 dark:text-white focus:ring-2 outline-none ${errorMsg ? 'border-red-400 focus:ring-red-400' : 'border-rose-200 dark:border-rose-700 focus:ring-rose-400/40'}`}
                           />
                           {errorMsg && (
                             <p className="text-[11px] text-red-500 font-semibold mt-1 flex items-center gap-1">
@@ -2346,116 +2411,308 @@ const [loiPdfUploading, setLoiPdfUploading] = useState(false);
                 </p>
               </div>
 
-              <div className="bg-slate-50 dark:bg-slate-900/50 rounded-2xl p-6 mb-6">
-                <h3 className="font-bold text-slate-800 dark:text-white mb-4">Statement of Account</h3>
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-slate-600">Accreditation Fee:</span>
-                    <span className="font-bold text-slate-800 dark:text-white">₱{liveAccreditationFee.toLocaleString()}</span>
+              {/* 2-Column Responsive Layout */}
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                
+                {/* Left Column (5 cols): Statement of Account & Transfer Accounts */}
+                <div className="lg:col-span-5 space-y-4">
+                  {/* Statement of Account */}
+                  <div className="bg-slate-50/80 dark:bg-slate-900/60 rounded-2xl p-5 border border-slate-200/60 dark:border-white/5 shadow-inner">
+                    <div className="flex items-center justify-between mb-3 border-b border-slate-200/60 dark:border-white/5 pb-2.5">
+                      <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 dark:text-slate-500 flex items-center gap-1.5">
+                        <span className="material-symbols-outlined text-sm text-blue-500">receipt_long</span>
+                        Statement of Account
+                      </span>
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300">
+                        Accreditation
+                      </span>
+                    </div>
+                    <div className="space-y-2 text-xs">
+                      <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
+                        <span>Accreditation Fee</span>
+                        <span className="font-semibold text-slate-800 dark:text-slate-200">₱{liveAccreditationFee.toLocaleString()}</span>
+                      </div>
+                      <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
+                        <span>Processing Fee</span>
+                        <span className="font-semibold text-slate-800 dark:text-slate-200">₱{liveAccreditationProcessingFee.toLocaleString()}</span>
+                      </div>
+                      <div className="flex justify-between items-center pt-2.5 border-t border-slate-200/80 dark:border-slate-800 text-sm">
+                        <span className="font-black text-slate-900 dark:text-white">Total Due</span>
+                        <span className="font-black text-xl text-blue-600 dark:text-blue-400">
+                          ₱{(liveAccreditationFee + liveAccreditationProcessingFee).toLocaleString()}
+                        </span>
+                      </div>
+                    </div>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-600">Processing Fee:</span>
-                    <span className="font-bold text-slate-800 dark:text-white">₱{liveAccreditationProcessingFee.toLocaleString()}</span>
-                  </div>
-                  <div className="flex justify-between pt-2 border-t border-slate-200 dark:border-slate-700">
-                    <span className="font-bold text-slate-800 dark:text-white">Total Due:</span>
-                    <span className="font-bold text-lg text-[#2563EB]">
-                      ₱{(liveAccreditationFee + liveAccreditationProcessingFee).toLocaleString()}
-                    </span>
+
+                  {/* Manual Transfer Accounts */}
+                  <div>
+                    <h3 className="text-[11px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2.5 flex items-center gap-1.5">
+                      <span className="material-symbols-outlined text-sm text-emerald-500">account_balance_wallet</span>
+                      Manual Payment Accounts
+                    </h3>
+                    <div className="space-y-2">
+                      <div className="p-3 rounded-xl bg-blue-50/60 dark:bg-blue-950/20 border border-blue-100 dark:border-blue-900/30 flex items-center gap-3">
+                        <div className="size-8 rounded-lg bg-blue-600 text-white flex items-center justify-center font-black text-xs shrink-0 shadow-sm">
+                          BDO
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Bank Transfer</p>
+                          <p className="text-xs font-black text-slate-800 dark:text-white truncate">1234-5678-90</p>
+                          <p className="text-[10px] text-slate-500 truncate">PAHA Main Acct</p>
+                        </div>
+                      </div>
+
+                      <div className="p-3 rounded-xl bg-emerald-50/60 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/30 flex items-center gap-3">
+                        <div className="size-8 rounded-lg bg-emerald-500 text-white flex items-center justify-center shrink-0 shadow-sm">
+                          <span className="material-symbols-outlined text-lg">smartphone</span>
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">GCash</p>
+                          <p className="text-xs font-black text-slate-800 dark:text-white truncate">0917-123-4567</p>
+                          <p className="text-[10px] text-slate-500 truncate">PAHA Assoc Inc</p>
+                        </div>
+                      </div>
+
+                      <div className="p-3 rounded-xl bg-amber-50/60 dark:bg-amber-950/20 border border-amber-100 dark:border-amber-900/30 flex items-center gap-3">
+                        <div className="size-8 rounded-lg bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-sm">
+                          <span className="material-symbols-outlined text-lg">storefront</span>
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Over-The-Counter</p>
+                          <p className="text-xs font-black text-slate-800 dark:text-white truncate">PAHA HQ Office</p>
+                          <p className="text-[10px] text-slate-500 truncate">Direct Cash Deposit</p>
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              <div className="mb-6">
-                <h3 className="font-bold text-slate-800 dark:text-white mb-3">Payment Methods</h3>
-                <div className="space-y-2 text-sm text-slate-600 dark:text-slate-400">
-                  <p>GCash: 0917-123-4567 (PAHA)</p>
-                  <p>Bank Transfer: BDO Account 1234-5678-90</p>
-                  <p>Over-the-counter at PAHA Office</p>
-                </div>
-              </div>
+                {/* Right Column (7 cols): Proof Upload & Instant PayCools */}
+                <div className="lg:col-span-7 space-y-4">
+                  {/* Upload Section */}
+                  <div className="bg-slate-50/60 dark:bg-slate-900/40 rounded-2xl p-5 border border-slate-200/60 dark:border-white/5 space-y-3">
+                    <label htmlFor="pipeline-paymentProof" className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center justify-between">
+                      <span className="flex items-center gap-1.5">
+                        <span className="material-symbols-outlined text-sm text-indigo-500">upload_file</span>
+                        Upload Deposit Slip / Receipt <span className="text-rose-500">*</span>
+                      </span>
+                      <span className="text-[10px] font-medium text-slate-400">JPG, PNG, PDF</span>
+                    </label>
+                    
+                    <div className="relative">
+                      <input
+                        id="pipeline-paymentProof"
+                        name="pipelinePaymentProof"
+                        type="file"
+                        accept="image/*,.pdf"
+                        onChange={(e) => e.target.files?.[0] && handlePaymentProofUpload(e.target.files[0])}
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                      />
+                      <div className="border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-xl p-5 text-center group-hover:border-blue-500 group-hover:bg-blue-50/30 transition-all bg-white dark:bg-slate-900/60">
+                        <span className="material-symbols-outlined text-3xl text-blue-500 group-hover:scale-110 transition-transform mb-1 block">
+                          cloud_upload
+                        </span>
+                        <p className="font-bold text-xs text-slate-700 dark:text-slate-300">Click to upload deposit receipt</p>
+                        <p className="text-[10px] text-slate-400 mt-0.5">Drag and drop file here</p>
+                      </div>
+                    </div>
 
-              <div className="mb-6">
-                <label htmlFor="pipeline-paymentProof" className="text-sm font-bold text-slate-700 dark:text-slate-300 mb-2 block">
-                  Upload Proof of Payment *
-                </label>
-                <div className="relative">
-                  <input
-                    id="pipeline-paymentProof"
-                    type="file"
-                    accept="image/*,.pdf"
-                    onChange={(e) => e.target.files?.[0] && handlePaymentProofUpload(e.target.files[0])}
-                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
-                  />
-                  <div className="border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-2xl p-8 text-center group-hover:border-[#2563EB] group-hover:bg-blue-50/50 transition-all">
-                    <span className="material-symbols-outlined text-4xl text-slate-300 group-hover:text-[#2563EB] mb-2 block">
-                      cloud_upload
-                    </span>
-                    <p className="font-bold text-slate-700 dark:text-slate-300">Click to upload or drag & drop</p>
-                    <p className="text-xs text-slate-400 mt-1">PDF, JPG, PNG — Max 10MB</p>
+                    {paymentPreview && (
+                      <div className="p-3 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 flex items-center gap-3">
+                        <img src={paymentPreview} alt="Payment proof preview" className="size-11 rounded-lg object-cover border border-slate-200 dark:border-slate-700" />
+                        <div className="min-w-0 flex-1">
+                          <p className="text-xs font-bold text-slate-800 dark:text-white truncate">{paymentProof?.name}</p>
+                          <p className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1">
+                            <span className="material-symbols-outlined text-xs">check_circle</span> Ready to submit
+                          </p>
+                        </div>
+                      </div>
+                    )}
+
+                    <button
+                      onClick={handleSubmitPayment}
+                      disabled={!paymentProof || submitting}
+                      className={`w-full py-3.5 rounded-xl font-bold text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-2 ${
+                        paymentProof && !submitting
+                          ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/25 hover:bg-blue-700 active:scale-[0.99]'
+                          : 'bg-slate-200 text-slate-400 dark:bg-slate-800 dark:text-slate-600 cursor-not-allowed'
+                      }`}
+                    >
+                      {submitting ? (
+                        <>
+                          <span className="animate-spin border-2 border-white/30 border-t-white rounded-full size-4"></span>
+                          Submitting Proof...
+                        </>
+                      ) : (
+                        <>
+                          <span className="material-symbols-outlined text-base">send</span>
+                          Submit Manual Payment Proof
+                        </>
+                      )}
+                    </button>
+                  </div>
+
+                  {/* Instant Automated PayCools */}
+                  <div className="bg-slate-50/60 dark:bg-slate-900/40 rounded-2xl p-4 border border-slate-200/60 dark:border-white/5 text-center space-y-2">
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">— Instant Online Payment —</p>
+                    <button
+                      id="pipeline-pay-online-btn"
+                      type="button"
+                      onClick={() => {
+                        const appId = application?.id || '';
+                        window.location.href = `/membership/payment?type=accreditation&appId=${appId}&membershipType=None`;
+                      }}
+                      className="w-full py-3.5 rounded-xl font-bold text-xs uppercase tracking-wider bg-gradient-to-r from-emerald-500 to-teal-600 text-white shadow-lg shadow-emerald-500/20 hover:from-emerald-600 hover:to-teal-700 transition-all flex items-center justify-center gap-2 active:scale-[0.99]"
+                    >
+                      <span className="material-symbols-outlined text-base" style={{ fontVariationSettings: "'FILL' 1" }}>credit_card</span>
+                      Pay Online via PayCools
+                    </button>
+                    <p className="text-[10px] text-slate-400 font-medium">GCash · Maya · BPI · Visa · Mastercard</p>
                   </div>
                 </div>
-                {paymentPreview && (
-                  <div className="mt-4 p-4 bg-slate-50 dark:bg-slate-900/50 rounded-xl">
-                    <img src={paymentPreview} alt="Payment proof preview" className="max-h-40 mx-auto rounded-lg" />
-                    <p className="text-sm text-center text-slate-500 mt-2">{paymentProof?.name}</p>
-                  </div>
-                )}
-              </div>
 
-              <button
-                onClick={handleSubmitPayment}
-                disabled={!paymentProof || submitting}
-                className={`w-full py-4 rounded-xl font-bold transition-all flex items-center justify-center gap-2 ${
-                  paymentProof && !submitting
-                    ? 'bg-[#2563EB] text-white shadow-xl shadow-blue-500/30 hover:bg-[#1E3A8A]'
-                    : 'bg-slate-100 text-slate-300 cursor-not-allowed'
-                }`}
-              >
-                {submitting ? (
-                  <>
-                    <span className="animate-spin border-2 border-white/30 border-t-white rounded-full size-4"></span>
-                    Submitting...
-                  </>
-                ) : (
-                  <>Submit Payment</>
-                )}
-              </button>
-
-              {/* Pay Online via PayCools */}
-              <div className="mt-4 pt-4 border-t border-slate-200 dark:border-slate-700">
-                <p className="text-xs text-slate-500 dark:text-slate-400 text-center mb-3 font-medium">— or pay securely online —</p>
-                <button
-                  id="pipeline-pay-online-btn"
-                  type="button"
-                  onClick={() => {
-                    const appId = application?.id || '';
-                    window.location.href = `/membership/payment?type=accreditation&appId=${appId}&membershipType=None`;
-                  }}
-                  className="w-full py-4 rounded-xl font-bold bg-gradient-to-r from-emerald-500 to-teal-600 text-white shadow-xl shadow-emerald-500/30 hover:from-emerald-600 hover:to-teal-700 transition-all flex items-center justify-center gap-2"
-                >
-                  <span className="material-symbols-outlined text-base" style={{ fontVariationSettings: "'FILL' 1" }}>credit_card</span>
-                  Pay Online via PayCools
-                </button>
-                <p className="text-[11px] text-slate-400 text-center mt-2">GCash · Maya · BPI · Visa · Mastercard</p>
               </div>
             </div>
           </div>
         )}
 
-        {viewingStage === null && currentStatus === 'paid' && application && !application.paymentData?.confirmedAt && (
-          <div className="bg-white dark:bg-slate-800 rounded-3xl p-6 md:p-8 shadow-lg border border-slate-200 dark:border-slate-700 text-center">
+        {(viewingStage === null || viewingStage === 6) && (currentStatus === 'payment_submitted' || currentStatus === 'paid') && application && !application.paymentData?.confirmedAt && (
+          <div className="bg-white dark:bg-slate-800 rounded-3xl p-6 md:p-8 shadow-lg border border-slate-200 dark:border-slate-700 text-center space-y-6">
             <div className="size-16 bg-amber-100 dark:bg-amber-900/30 rounded-full flex items-center justify-center mx-auto mb-4">
               <span className="material-symbols-outlined text-3xl text-amber-500">schedule</span>
             </div>
-            <h2 className="text-2xl font-bold text-slate-800 dark:text-white mb-2">Payment Submitted</h2>
-            <p className="text-slate-500 dark:text-slate-400">
-              PAHA is verifying your payment. You will be notified once confirmed.
+            <h2 className="text-2xl font-bold text-slate-800 dark:text-white mb-2">Payment Verification Pending</h2>
+            <p className="text-slate-500 dark:text-slate-400 max-w-md mx-auto mb-4">
+              We have received your payment submission. PAHA administrators are currently verifying the transaction. You will be notified once confirmed.
             </p>
+
+            {/* 2-Column responsive layout */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-4xl mx-auto text-left">
+              
+              {/* Left Column: Manual Payment Details */}
+              <div className="bg-slate-50 dark:bg-slate-900/60 rounded-2xl border border-slate-200 dark:border-white/5 p-6 space-y-4">
+                <h3 className="text-xs font-black uppercase tracking-widest text-slate-400 flex items-center gap-1.5 pb-2 border-b border-slate-100 dark:border-white/5">
+                  <span className="material-symbols-outlined text-base text-blue-600 dark:text-blue-400">receipt_long</span>
+                  Manual Payment Details
+                </h3>
+                <div className="space-y-3 text-xs">
+                  {/* Payment Method */}
+                  <div className="flex items-center gap-3 p-3 rounded-xl bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700/50 shadow-sm transition-all hover:scale-[1.01]">
+                    <div className="size-9 rounded-lg bg-indigo-50 dark:bg-indigo-950/30 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0">
+                      <span className="material-symbols-outlined text-lg">credit_card</span>
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <span className="text-[10px] font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-wider block mb-0.5">Payment Method</span>
+                      <span className="font-bold text-slate-800 dark:text-slate-205">
+                        {(application.paymentData as any)?.paymentMethod || (application.paymentData as any)?.method || 'Manual Bank Deposit / GCash'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Reference Number */}
+                  <div className="flex items-center gap-3 p-3 rounded-xl bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700/50 shadow-sm transition-all hover:scale-[1.01]">
+                    <div className="size-9 rounded-lg bg-amber-50 dark:bg-amber-950/30 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
+                      <span className="material-symbols-outlined text-lg">tag</span>
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <span className="text-[10px] font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-wider block mb-0.5">Reference Number</span>
+                      <span className="font-mono font-bold text-slate-800 dark:text-slate-205">
+                        {(application.paymentData as any)?.referenceNo || 'N/A'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Amount Paid */}
+                  <div className="flex items-center gap-3 p-3 rounded-xl bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700/50 shadow-sm transition-all hover:scale-[1.01]">
+                    <div className="size-9 rounded-lg bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
+                      <span className="material-symbols-outlined text-lg">monetization_on</span>
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <span className="text-[10px] font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-wider block mb-0.5">Amount Paid</span>
+                      <span className="font-extrabold text-emerald-600 dark:text-emerald-400 text-sm">
+                        ₱{((application.paymentData as any)?.amount || (liveAccreditationFee + liveAccreditationProcessingFee)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Submitted At */}
+                  <div className="flex items-center gap-3 p-3 rounded-xl bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700/50 shadow-sm transition-all hover:scale-[1.01]">
+                    <div className="size-9 rounded-lg bg-blue-50 dark:bg-blue-950/30 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0">
+                      <span className="material-symbols-outlined text-lg">schedule</span>
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <span className="text-[10px] font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-wider block mb-0.5">Submitted At</span>
+                      <span className="font-semibold text-slate-800 dark:text-slate-205">
+                        {application.paymentData?.triggeredAt ? new Date(application.paymentData.triggeredAt).toLocaleString() : 'Recent'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Right Column: Uploaded Proof File & Preview */}
+              <div className="bg-slate-50 dark:bg-slate-900/60 rounded-2xl border border-slate-200 dark:border-white/5 p-6 flex flex-col justify-between space-y-4">
+                <div>
+                  <h3 className="text-xs font-black uppercase tracking-widest text-slate-400 flex items-center gap-1.5 pb-2 border-b border-slate-100 dark:border-white/5">
+                    <span className="material-symbols-outlined text-base text-emerald-500">attach_file</span>
+                    Proof of Payment Document
+                  </h3>
+                  
+                  {(application.paymentData?.proofOfPaymentUrl || application.paymentData?.paymentProofUrl) ? (
+                    <div className="space-y-4 mt-3">
+                      {/* Interactive Image Preview Box */}
+                      <div className="relative rounded-xl overflow-hidden border border-slate-200 dark:border-slate-850 group bg-slate-900/40 flex items-center justify-center h-[130px] shrink-0">
+                        <img
+                          src={application.paymentData.proofOfPaymentUrl || application.paymentData.paymentProofUrl}
+                          alt="Proof of Payment"
+                          className="h-full w-full object-contain"
+                        />
+                        <a
+                          href={application.paymentData.proofOfPaymentUrl || application.paymentData.paymentProofUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="absolute inset-0 bg-slate-950/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2 text-white font-bold text-xs"
+                        >
+                          <span className="material-symbols-outlined text-lg">open_in_new</span>
+                          Open in New Tab
+                        </a>
+                      </div>
+                      
+                      <div className="flex items-center justify-between p-3 bg-white dark:bg-slate-850 rounded-xl border border-slate-200 dark:border-slate-700/50">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <div className="p-2 bg-blue-50 dark:bg-blue-950/20 text-blue-600 dark:text-blue-400 rounded-lg shrink-0 flex items-center justify-center">
+                            <span className="material-symbols-outlined text-lg">image</span>
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-xs font-bold text-slate-700 dark:text-slate-200 truncate">Deposit Slip / Receipt</p>
+                            <p className="text-[10px] text-slate-400">Preview file upload</p>
+                          </div>
+                        </div>
+                        <a
+                          href={application.paymentData.proofOfPaymentUrl || application.paymentData.paymentProofUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="px-3.5 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-600 dark:bg-blue-500/10 dark:text-blue-400 text-xs font-bold transition-all flex items-center gap-1 cursor-pointer shrink-0"
+                        >
+                          Open File
+                        </a>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="p-8 text-center flex flex-col items-center justify-center text-slate-400 h-full">
+                      <span className="material-symbols-outlined text-3xl mb-2 text-slate-300">warning</span>
+                      <p className="text-xs font-semibold">No proof of payment attached</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+            </div>
           </div>
         )}
 
-        {application?.paymentData?.confirmedAt && (
+        {(viewingStage === null || viewingStage === 6) && application?.paymentData?.confirmedAt && (
           <div className="bg-white dark:bg-slate-800 rounded-3xl p-6 md:p-8 shadow-lg border border-emerald-200 dark:border-emerald-800 text-center">
             <div className="size-20 bg-emerald-100 dark:bg-emerald-900/30 rounded-full flex items-center justify-center mx-auto mb-6">
               <span className="material-symbols-outlined text-4xl text-emerald-500">workspace_premium</span>
@@ -2480,12 +2737,15 @@ const [loiPdfUploading, setLoiPdfUploading] = useState(false);
             <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setShowSuccessModal(false)}></div>
             <div className="relative bg-white dark:bg-slate-800 rounded-[32px] p-8 max-w-md w-full shadow-2xl animate-in zoom-in-95 duration-300 text-center border border-slate-200 dark:border-white/10">
               
-              {/* Glowing Success Checkmark */}
-              <div className="relative size-20 mx-auto mb-6">
-                <div className="absolute inset-0 bg-emerald-500/20 rounded-full animate-ping opacity-75"></div>
-                <div className="relative size-20 bg-emerald-50 dark:bg-emerald-950/30 rounded-full flex items-center justify-center border-2 border-emerald-500/20">
-                  <span className="material-symbols-outlined text-4xl text-emerald-500 font-bold">check_circle</span>
-                </div>
+              {/* PAHA Logo Header */}
+              <div className="relative size-24 mx-auto mb-6 flex items-center justify-center">
+                {logoUrl ? (
+                  <img src={logoUrl} className="h-20 w-auto object-contain animate-in zoom-in-50 duration-500" alt="PAHA Logo" />
+                ) : (
+                  <div className="size-20 rounded-3xl bg-[#2563EB] flex items-center justify-center text-white font-black text-xl shadow-lg shadow-blue-500/20">
+                    PAHA
+                  </div>
+                )}
               </div>
 
               <h3 className="text-2xl font-black text-slate-900 dark:text-white mb-2">Submission Successful!</h3>
@@ -2495,20 +2755,20 @@ const [loiPdfUploading, setLoiPdfUploading] = useState(false);
 
               {/* Reference ID copy card */}
               {refId && (
-                <div className="mb-6 p-4 rounded-2xl bg-slate-50 dark:bg-white/[0.02] border border-slate-150 dark:border-white/5 flex flex-col gap-2">
-                  <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest leading-none">Reference Number</span>
+                <div className="mb-6 p-4.5 rounded-2xl bg-blue-50/40 dark:bg-[#2563EB]/5 border border-blue-100/80 dark:border-[#2563EB]/20 flex flex-col gap-2">
+                  <span className="text-[10px] font-black text-primary dark:text-blue-400 uppercase tracking-widest leading-none">Reference Number</span>
                   <div className="flex items-center justify-center gap-2">
-                    <code className="text-sm font-mono font-bold text-slate-800 dark:text-white select-all">{refId}</code>
+                    <code className="text-base font-mono font-extrabold text-slate-800 dark:text-white tracking-wider select-all">{refId}</code>
                     <button 
                       onClick={() => {
                         navigator.clipboard.writeText(refId);
                         setCopied(true);
                         setTimeout(() => setCopied(false), 2000);
                       }}
-                      className="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-white/5 text-slate-400 hover:text-primary transition-all flex items-center justify-center relative group/copy"
+                      className="p-1.5 rounded-lg hover:bg-blue-100/50 dark:hover:bg-[#2563EB]/10 text-primary dark:text-blue-400 transition-all flex items-center justify-center relative group/copy"
                       title="Copy Reference"
                     >
-                      <span className="material-symbols-outlined text-base">{copied ? 'check' : 'content_copy'}</span>
+                      <span className="material-symbols-outlined text-base font-bold">{copied ? 'check' : 'content_copy'}</span>
                       {copied && (
                         <span className="absolute bottom-full mb-1 text-[9px] font-bold uppercase tracking-wider bg-slate-900 text-white px-2 py-0.5 rounded-md shadow-md animate-bounce">Copied</span>
                       )}
@@ -2518,17 +2778,33 @@ const [loiPdfUploading, setLoiPdfUploading] = useState(false);
               )}
 
               {/* Dynamic Next Steps guides */}
-              <div className="mb-8 p-4 rounded-2xl bg-primary/5 dark:bg-primary/10 border border-primary/10 text-left flex gap-3">
-                <div className="size-8 rounded-xl bg-primary/10 dark:bg-primary/20 shrink-0 flex items-center justify-center text-primary">
-                  <span className="material-symbols-outlined text-base">info</span>
+              <div className="mb-8 p-4.5 rounded-r-2xl rounded-l-md bg-blue-50/30 dark:bg-[#2563EB]/5 border-l-4 border-[#2563EB] dark:border-blue-500 text-left flex gap-3.5">
+                <div className="size-9 rounded-xl bg-blue-100/50 dark:bg-[#2563EB]/15 shrink-0 flex items-center justify-center text-[#2563EB] dark:text-blue-400">
+                  <span className="material-symbols-outlined text-lg font-bold">rocket_launch</span>
                 </div>
                 <div>
-                  <h5 className="text-xs font-bold text-primary uppercase tracking-wider mb-1">What's Next?</h5>
-                  <p className="text-[11px] text-slate-650 dark:text-slate-350 leading-relaxed font-medium">
-                    {isLoi && "Your Letter of Intent has been recorded. Please close this modal and proceed to Stage 2: Self-Assessment."}
-                    {isSelf && "Your assessment checklist has been submitted. Prepare for the facility visit and inspect your medical equipment."}
-                    {isDocs && "Documents are under evaluation. Next, upload your Payment Proof in Stage 4 to complete the process."}
-                    {isPayment && "Our administrators will verify your payment details and issue your Accreditation Certificate shortly."}
+                  <h5 className="text-xs font-black text-slate-800 dark:text-white uppercase tracking-wider mb-1">What's Next?</h5>
+                  <p className="text-[11px] text-slate-600 dark:text-slate-350 leading-relaxed font-medium">
+                    {isLoi && (
+                      <>
+                        Your Letter of Intent has been recorded. Please close this modal and proceed to <strong className="font-extrabold text-primary dark:text-blue-400">Stage 2: Self-Assessment</strong>.
+                      </>
+                    )}
+                    {isSelf && (
+                      <>
+                        Your assessment checklist has been submitted. Prepare for the <strong className="font-extrabold text-primary dark:text-blue-400">facility visit</strong> and inspect your medical equipment.
+                      </>
+                    )}
+                    {isDocs && (
+                      <>
+                        Documents are under evaluation. Next, upload your <strong className="font-extrabold text-primary dark:text-blue-400">Payment Proof</strong> in Stage 4 to complete the process.
+                      </>
+                    )}
+                    {isPayment && (
+                      <>
+                        Our administrators will verify your payment details and issue your <strong className="font-extrabold text-primary dark:text-blue-400">Accreditation Certificate</strong> shortly.
+                      </>
+                    )}
                     {!isLoi && !isSelf && !isDocs && !isPayment && "Please monitor your email for updates regarding your submission status."}
                   </p>
                 </div>

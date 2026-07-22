@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAdmin } from '../context/AdminContext';
+import { cleanPhoneInput, formatPhoneForDB } from '../utils/phone';
 
 interface EventRegistrationModalProps {
     isOpen: boolean;
@@ -174,7 +175,7 @@ const EventRegistrationModal: React.FC<EventRegistrationModalProps> = ({ isOpen,
                 eventTitle: event.title,
                 attendeeName: `${formData.designation} ${formData.fullName}`,
                 attendeeEmail: formData.email,
-                attendeePhone: formData.phone ? `+63${formData.phone}` : '',
+                attendeePhone: formatPhoneForDB(formData.phone),
                 prcLicense: formData.prcLicense,
                 specialization: formData.specialization,
                 paymentMethod: formData.paymentMethod,
@@ -369,14 +370,15 @@ const EventRegistrationModal: React.FC<EventRegistrationModalProps> = ({ isOpen,
                                                 <input
                                                     id="reg-phone"
                                                     name="phone"
-                                                    value={formData.phone ? (formData.phone.startsWith('+63') ? formData.phone.slice(3) : formData.phone.startsWith('63') && formData.phone.length === 12 ? formData.phone.slice(2) : formData.phone.startsWith('0') && formData.phone.length === 11 ? formData.phone.slice(1) : formData.phone) : ''}
+                                                    value={cleanPhoneInput(formData.phone)}
                                                     onChange={(e) => {
-                                                        const cleaned = e.target.value.replace(/\D/g, '').slice(0, 10);
+                                                        const cleaned = cleanPhoneInput(e.target.value);
                                                         setFormData(prev => ({ ...prev, phone: cleaned }));
                                                         if (errors.phone) {
                                                             setErrors(prev => ({ ...prev, phone: '' }));
                                                         }
                                                     }}
+                                                    maxLength={10}
                                                     type="tel"
                                                     className={`w-full bg-slate-50 dark:bg-white/5 border ${errors.phone ? 'border-red-500/50' : 'border-slate-200 dark:border-white/10'} rounded-xl pl-16 pr-4 py-4 text-slate-900 dark:text-white focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/10 transition-all placeholder:text-slate-400 dark:placeholder:text-gray-600 hover:border-primary/30 shadow-sm`}
                                                     placeholder="917 123 4567"
@@ -530,7 +532,7 @@ const EventRegistrationModal: React.FC<EventRegistrationModalProps> = ({ isOpen,
                                         </div>
 
                                         <div className="space-y-4">
-                                            <label className="text-[11px] font-semibold uppercase tracking-widest text-slate-500 dark:text-silver/50">Payment Method</label>
+                                            <p className="text-[11px] font-semibold uppercase tracking-widest text-slate-500 dark:text-silver/50">Payment Method</p>
                                             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                                                 {[
                                                     { id: 'credit_card', icon: 'credit_card', label: 'Credit Card' },

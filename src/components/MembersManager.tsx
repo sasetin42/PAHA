@@ -2,14 +2,13 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { useAdmin } from '../context/AdminContext';
 import type { MemberProfile } from '../context/AdminContext';
 import { getCoordinates } from '../utils/geocoding';
+import { cleanPhoneInput, formatPhoneForDB } from '../utils/phone';
 import { useNavigate } from 'react-router-dom';
 import { collection, onSnapshot, query, doc, updateDoc } from 'firebase/firestore';
 import { db, auth } from '../config/firebase';
 import { signInWithEmailAndPassword } from 'firebase/auth';
 import InspectApplicationModal from './InspectApplicationModal';
 import FileViewerModal, { type ViewerFile } from './FileViewerModal';
-import CalendarPicker from './CalendarPicker';
-
 import { OFFICIAL_DIRECTORY, normalizeInstitutionName } from '../data/officialDirectory';
 import { WORKFLOW_STATUS_LABELS } from '../types/accreditation';
 
@@ -34,7 +33,7 @@ interface MembersManagerProps {
 }
 
 const MembersManager: React.FC<MembersManagerProps> = ({ filter = 'all', canEdit = true }) => {
-    const { members, addMember, updateMember, deleteMember, toggleMemberActive, uploadImage, registrations } = useAdmin();
+    const { members, addMember, updateMember, deleteMember, toggleMemberActive, uploadImage, registrations, updateApplicationStatus } = useAdmin();
     const [isEditing, setIsEditing] = useState<string | null>(null);
     const [showAddForm, setShowAddForm] = useState(false);
     const [isUploading, setIsUploading] = useState(false);
@@ -118,6 +117,8 @@ const MembersManager: React.FC<MembersManagerProps> = ({ filter = 'all', canEdit
     useEffect(() => {
         const unsub = onSnapshot(collection(db, 'membership_plans'), (snapshot) => {
             setMembershipPlans(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
+        }, (err) => {
+            console.error('[MembersManager] Plans error:', err);
         });
         return () => unsub();
     }, []);
@@ -129,6 +130,8 @@ const MembersManager: React.FC<MembersManagerProps> = ({ filter = 'all', canEdit
                 map[doc.id] = doc.data();
             });
             setUsersMap(map);
+        }, (err) => {
+            console.error('[MembersManager] Users error:', err);
         });
         return () => unsubscribe();
     }, []);
@@ -144,6 +147,8 @@ const MembersManager: React.FC<MembersManagerProps> = ({ filter = 'all', canEdit
             const repsRef = collection(db, 'users', uid, 'representatives');
             const unsubscribe = onSnapshot(repsRef, (snap) => {
                 setMemberReps(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+            }, (err) => {
+                console.error('[MembersManager] Reps error:', err);
             });
             return () => unsubscribe();
         } else {
@@ -155,16 +160,22 @@ const MembersManager: React.FC<MembersManagerProps> = ({ filter = 'all', canEdit
         const qApps = query(collection(db, 'accreditation_applications'));
         const unsubApps = onSnapshot(qApps, (snap) => {
             setAcApplications(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+        }, (err) => {
+            console.error('[MembersManager] Accreditation apps error:', err);
         });
 
         const qTx = query(collection(db, 'paymentTransactions'));
         const unsubTx = onSnapshot(qTx, (snap) => {
             setAllTransactions(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+        }, (err) => {
+            console.error('[MembersManager] Transactions error:', err);
         });
 
         const qMemApps = query(collection(db, 'membership_applications'));
         const unsubMemApps = onSnapshot(qMemApps, (snap) => {
             setMembershipApps(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+        }, (err) => {
+            console.error('[MembersManager] Membership apps error:', err);
         });
 
         return () => {
@@ -261,7 +272,7 @@ const MembersManager: React.FC<MembersManagerProps> = ({ filter = 'all', canEdit
             date: (member as any).date || matchedApp.date || member.joinedAt || new Date().toISOString(),
             annualDues: (member as any).annualDues || (matchedApp.type === 'Associate' ? 3500 : 2000),
             renewalDate: (member as any).renewalDate || renewalDate,
-            paymentStatus: (member as any).paymentStatus || matchedApp.status || 'paid',
+            paymentStatus: (member as any).paymentStatus || matchedApp.paymentStatus || (matchedApp.status === 'approved' ? 'paid' : 'pending'),
             paymentMethod: (member as any).paymentMethod || matchedApp.paymentMethod || 'Manual Bank Transfer',
             paymentReference: (member as any).paymentReference || matchedApp.paymentReference || '',
         } as any);
@@ -271,18 +282,9 @@ const MembersManager: React.FC<MembersManagerProps> = ({ filter = 'all', canEdit
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        // formData.phone may already carry a +63/63/0 prefix if the field was
-        // never touched (pre-filled straight from the member record), so blindly
-        // prepending +63 here would double it up.
-        const rawPhone = formData.phone
-            ? (formData.phone.startsWith('+63') ? formData.phone.slice(3)
-                : formData.phone.startsWith('63') && formData.phone.length === 12 ? formData.phone.slice(2)
-                : formData.phone.startsWith('0') && formData.phone.length === 11 ? formData.phone.slice(1)
-                : formData.phone)
-            : '';
         const dataToSave = {
             ...formData,
-            phone: rawPhone ? `+63${rawPhone}` : ''
+            phone: formatPhoneForDB(formData.phone)
         };
         try {
             if (isEditing) {
@@ -300,7 +302,7 @@ const MembersManager: React.FC<MembersManagerProps> = ({ filter = 'all', canEdit
                     businessStructure: (formData as any).businessStructure || matchedApp.businessStructure,
                     date: (formData as any).date || matchedApp.date || new Date().toISOString(),
                     paidAt: (formData as any).joinedAt || matchedApp.paidAt || new Date().toISOString(),
-                    status: (formData as any).paymentStatus || matchedApp.status || 'paid',
+                    status: (formData as any).paymentStatus || matchedApp.paymentStatus || matchedApp.status || 'pending',
                     paymentMethod: (formData as any).paymentMethod || matchedApp.paymentMethod || 'Manual Bank Transfer',
                     paymentReference: (formData as any).paymentReference || matchedApp.paymentReference || '',
                     memberId: (formData as any).memberId || matchedApp.memberId || ''
@@ -370,17 +372,6 @@ const MembersManager: React.FC<MembersManagerProps> = ({ filter = 'all', canEdit
         }
     };
 
-    const getMemberImage = (mProfile: MemberProfile) => {
-        if (mProfile.image && !mProfile.image.includes('placeholder')) return mProfile.image;
-        const matchedApp = membershipApps.find(app => app.email?.toLowerCase() === mProfile.email?.toLowerCase());
-        if (matchedApp?.photoUrl && !matchedApp.photoUrl.includes('placeholder')) return matchedApp.photoUrl;
-        const uid = (mProfile as any).uid || matchedApp?.uid;
-        if (uid && usersMap[uid]?.photoUrl && !usersMap[uid].photoUrl.includes('placeholder')) {
-            return usersMap[uid].photoUrl;
-        }
-        return null;
-    };
-
     // Filter and Sort Logic
     const filteredMembers = useMemo(() => {
         let result = [...members];
@@ -412,22 +403,13 @@ const MembersManager: React.FC<MembersManagerProps> = ({ filter = 'all', canEdit
 
         // Sorting
         result.sort((a, b) => {
-            let valA = a[sortBy];
-            let valB = b[sortBy];
+            const valA = a[sortBy];
+            const valB = b[sortBy];
             
             // Put undefined/null/empty values at the bottom
             if (valA === undefined || valA === null || valA === '') return 1;
             if (valB === undefined || valB === null || valB === '') return -1;
             
-            // If sorting by date (joinedAt or createdAt), handle dates properly
-            if (sortBy === 'joinedAt' || sortBy === 'createdAt' as any) {
-                const dateA = new Date(valA && typeof valA === 'object' && 'seconds' in valA ? (valA as any).seconds * 1000 : (valA as any));
-                const dateB = new Date(valB && typeof valB === 'object' && 'seconds' in valB ? (valB as any).seconds * 1000 : (valB as any));
-                const timeA = isNaN(dateA.getTime()) ? 0 : dateA.getTime();
-                const timeB = isNaN(dateB.getTime()) ? 0 : dateB.getTime();
-                return sortOrder === 'asc' ? timeA - timeB : timeB - timeA;
-            }
-
             const strA = valA.toString().toLowerCase();
             const strB = valB.toString().toLowerCase();
             
@@ -452,7 +434,7 @@ const MembersManager: React.FC<MembersManagerProps> = ({ filter = 'all', canEdit
     const professionalCount = members.filter(m => m.type === 'Professional Member').length;
 
 return (
-        <div className="relative space-y-6">
+        <div className="relative">
             <div className="space-y-6">
                 <div>
                     <h2 className="text-2xl font-bold text-slate-800 dark:text-white flex items-center gap-2">
@@ -644,8 +626,8 @@ return (
                                             <div className="flex items-center gap-3">
                                                 <div className="relative shrink-0">
                                                     <div className="w-10 h-10 rounded-[8px] bg-slate-100 dark:bg-slate-900 overflow-hidden border border-slate-200 dark:border-white/10 shadow-sm flex items-center justify-center">
-                                                        {getMemberImage(member) ? (
-                                                            <img src={getMemberImage(member)!} alt="" className="w-full h-full object-cover" />
+                                                        {member.image ? (
+                                                            <img src={member.image} alt="" className="w-full h-full object-cover" />
                                                         ) : (
                                                             <span className="material-symbols-outlined text-slate-400 text-lg">person</span>
                                                         )}
@@ -657,12 +639,12 @@ return (
                                                     )}
                                                 </div>
                                                 <div>
-                                                    <h4 className="font-bold text-slate-900 dark:text-white text-sm leading-tight capitalize" title={member.name}>
-                                                        {member.name ? (member.name.length > 20 ? `${member.name.substring(0, 20).toLowerCase()}...` : member.name.toLowerCase()) : ''}
+                                                    <h4 className="font-bold text-slate-900 dark:text-white text-sm leading-tight" title={member.name}>
+                                                        {member.name.length > 20 ? `${member.name.substring(0, 20)}...` : member.name}
                                                     </h4>
-                                                    <p className="text-[10px] text-slate-400 dark:text-slate-500 font-semibold mt-0.5 capitalize tracking-wide flex items-center gap-1" title={member.headVeterinarian || 'No Head Vet Specified'}>
+                                                    <p className="text-[10px] text-slate-400 dark:text-slate-500 font-semibold mt-0.5 uppercase tracking-wide flex items-center gap-1" title={member.headVeterinarian || 'No Head Vet Specified'}>
                                                         <span className="material-symbols-outlined text-[12px]">medical_services</span>
-                                                        {member.headVeterinarian ? (member.headVeterinarian.length > 20 ? `${member.headVeterinarian.substring(0, 20).toLowerCase()}...` : member.headVeterinarian.toLowerCase()) : 'No Head Vet Specified'}
+                                                        {member.headVeterinarian ? (member.headVeterinarian.length > 20 ? `${member.headVeterinarian.substring(0, 20)}...` : member.headVeterinarian) : 'No Head Vet Specified'}
                                                     </p>
                                                 </div>
                                             </div>
@@ -758,7 +740,7 @@ return (
                                                 let payStyle = "bg-slate-500/15 text-slate-500 border-slate-500/20";
                                                 
                                                 if (memApp) {
-                                                    if (memApp.paymentStatus === 'paid' || memApp.status === 'approved') {
+                                                    if (memApp.paymentStatus === 'paid' || (memApp.status === 'approved' && memApp.paymentStatus !== 'pending_payment' && memApp.paymentStatus !== 'pending_manual')) {
                                                         payText = "PAID";
                                                         payStyle = "bg-emerald-500/15 text-emerald-500 border-emerald-500/20";
                                                     } else if (memApp.paymentStatus === 'pending_manual') {
@@ -832,18 +814,7 @@ return (
                                                                             setActiveDropdown(null);
                                                                             if (window.confirm(`Approve membership application and confirm payment for ${member.name}?`)) {
                                                                                 try {
-                                                                                    // Approve the application doc
-                                                                                    await updateDoc(doc(db, 'membership_applications', mApp.id), {
-                                                                                        status: 'approved',
-                                                                                        paymentStatus: 'paid'
-                                                                                    });
-                                                                                    // Set hasPaid = true on the user's profile
-                                                                                    if (mApp.uid) {
-                                                                                        await updateDoc(doc(db, 'users', mApp.uid), {
-                                                                                            hasPaid: true,
-                                                                                            paidAt: new Date().toISOString()
-                                                                                        });
-                                                                                    }
+                                                                                    await updateApplicationStatus(mApp.id, 'approved');
                                                                                     alert('Membership successfully approved!');
                                                                                 } catch (err: any) {
                                                                                     alert('Error approving membership: ' + err.message);
@@ -964,7 +935,7 @@ return (
 
             {/* Modal Form */}
             {showAddForm && (
-                <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+                <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
                     <div className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm animate-fade-in" onClick={() => setShowAddForm(false)}></div>
                     
                     <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 w-full max-w-4xl rounded-[16px] shadow-2xl relative overflow-hidden flex flex-col max-h-[90vh] animate-slide-up text-slate-900 dark:text-white">
@@ -1014,7 +985,7 @@ return (
                                         {/* Basic Info */}
                                         <div className="space-y-6">
                                             <div className="space-y-4">
-                                                <label className="text-[11px] font-bold uppercase tracking-widest text-slate-400 dark:text-slate-500 block border-b border-slate-100 dark:border-white/5 pb-1">Core Information</label>
+                                                <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400 dark:text-slate-500 block border-b border-slate-100 dark:border-white/5 pb-1">Core Information</p>
                                                 
                                                 <div className="space-y-1">
                                                     <label htmlFor="mm-name" className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block px-1">CLINIC / HOSPITAL NAME</label>
@@ -1045,7 +1016,7 @@ return (
                                             </div>
 
                                             <div className="space-y-4 pt-2">
-                                                <label className="text-[11px] font-bold uppercase tracking-widest text-slate-400 dark:text-slate-500 block border-b border-slate-100 dark:border-white/5 pb-1">Contact & Access</label>
+                                                <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400 dark:text-slate-500 block border-b border-slate-100 dark:border-white/5 pb-1">Contact & Access</p>
                                                 
                                                 <div className="grid grid-cols-1 gap-4">
                                                     <div className="space-y-1">
@@ -1083,11 +1054,9 @@ return (
                                                                 type="text" 
                                                                 required 
                                                                 placeholder="900 000 0000" 
-                                                                value={formData.phone ? (formData.phone.startsWith('+63') ? formData.phone.slice(3) : formData.phone.startsWith('63') && formData.phone.length === 12 ? formData.phone.slice(2) : formData.phone.startsWith('0') && formData.phone.length === 11 ? formData.phone.slice(1) : formData.phone) : ''}
-                                                                onChange={e => {
-                                                                    const cleaned = e.target.value.replace(/\D/g, '').slice(0, 10);
-                                                                    setFormData({ ...formData, phone: cleaned });
-                                                                }}
+                                                                value={cleanPhoneInput(formData.phone)}
+                                                                onChange={e => setFormData({ ...formData, phone: cleanPhoneInput(e.target.value) })}
+                                                                maxLength={10}
                                                                 className="w-full text-xs font-semibold pl-16 pr-3 py-2.5 rounded-[8px] bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-white/5 text-slate-950 dark:text-white focus:ring-2 focus:ring-primary/20 outline-none"
                                                             />
                                                         </div>
@@ -1099,7 +1068,7 @@ return (
                                         {/* Address & Type */}
                                         <div className="space-y-6">
                                             <div className="space-y-4">
-                                                <label className="text-[11px] font-bold uppercase tracking-widest text-slate-400 dark:text-slate-500 block border-b border-slate-100 dark:border-white/5 pb-1">Location & Classification</label>
+                                                <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400 dark:text-slate-500 block border-b border-slate-100 dark:border-white/5 pb-1">Location & Classification</p>
                                                 
                                                 <div className="space-y-1">
                                                     <label htmlFor="mm-address" className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block px-1">COMPLETE ADDRESS</label>
@@ -1214,7 +1183,7 @@ return (
 
                                         {/* Image Section */}
                                         <div className="md:col-span-2 space-y-4 pt-4 border-t border-slate-105 dark:border-white/5">
-                                            <label className="text-[11px] font-bold uppercase tracking-widest text-slate-400 dark:text-slate-500 block">Logo & Media</label>
+                                            <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400 dark:text-slate-500 block">Logo & Media</p>
                                             
                                             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                                                 <div className="relative group cursor-pointer h-32">
@@ -1294,7 +1263,7 @@ return (
                                         {/* Membership Info Column */}
                                         <div className="space-y-6">
                                             <div className="space-y-4">
-                                                <label className="text-[11px] font-bold uppercase tracking-widest text-slate-400 dark:text-slate-500 block border-b border-slate-100 dark:border-white/5 pb-1">Membership Configuration</label>
+                                                <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400 dark:text-slate-500 block border-b border-slate-100 dark:border-white/5 pb-1">Membership Configuration</p>
                                                 
                                                 <div className="space-y-1">
                                                     <label htmlFor="mm-edit-memberId" className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block px-1">Membership ID</label>
@@ -1350,24 +1319,30 @@ return (
 
                                                 <div className="grid grid-cols-2 gap-4">
                                                     <div className="space-y-1">
-                                                        <CalendarPicker
+                                                        <label htmlFor="mm-edit-joinedAt" className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block px-1">Member Since</label>
+                                                        <input
                                                             id="mm-edit-joinedAt"
-                                                            label="Member Since"
+                                                            name="mm-edit-joinedAt"
+                                                            type="date"
+                                                            className="w-full bg-slate-50 dark:bg-slate-955 border border-slate-200 dark:border-white/10 rounded-[10px] px-4 py-2.5 text-slate-900 dark:text-white focus:border-primary/50 outline-none focus:ring-4 ring-primary/5 transition-all font-semibold text-xs"
                                                             value={(formData as any).joinedAt ? new Date((formData as any).joinedAt).toISOString().split('T')[0] : ''}
-                                                            onChange={dateStr => {
-                                                                const d = new Date(dateStr);
+                                                            onChange={e => {
+                                                                const d = new Date(e.target.value);
                                                                 setFormData({ ...formData, joinedAt: isNaN(d.getTime()) ? '' : d.toISOString() } as any);
                                                             }}
                                                         />
                                                     </div>
 
                                                     <div className="space-y-1">
-                                                        <CalendarPicker
+                                                        <label htmlFor="mm-edit-renewalDate" className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block px-1">Next Renewal Date</label>
+                                                        <input
                                                             id="mm-edit-renewalDate"
-                                                            label="Next Renewal Date"
+                                                            name="mm-edit-renewalDate"
+                                                            type="date"
+                                                            className="w-full bg-slate-50 dark:bg-slate-955 border border-slate-200 dark:border-white/10 rounded-[10px] px-4 py-2.5 text-slate-900 dark:text-white focus:border-primary/50 outline-none focus:ring-4 ring-primary/5 transition-all font-semibold text-xs"
                                                             value={(formData as any).renewalDate ? new Date((formData as any).renewalDate).toISOString().split('T')[0] : ''}
-                                                            onChange={dateStr => {
-                                                                const d = new Date(dateStr);
+                                                            onChange={e => {
+                                                                const d = new Date(e.target.value);
                                                                 setFormData({ ...formData, renewalDate: isNaN(d.getTime()) ? '' : d.toISOString() } as any);
                                                             }}
                                                         />
@@ -1379,7 +1354,7 @@ return (
                                         {/* Payments Column */}
                                         <div className="space-y-6">
                                             <div className="space-y-4">
-                                                <label className="text-[11px] font-bold uppercase tracking-widest text-slate-400 dark:text-slate-500 block border-b border-slate-100 dark:border-white/5 pb-1">Payment Configuration</label>
+                                                <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400 dark:text-slate-500 block border-b border-slate-100 dark:border-white/5 pb-1">Payment Configuration</p>
                                                 
                                                 <div className="grid grid-cols-2 gap-4">
                                                     <div className="space-y-1">
@@ -1442,12 +1417,15 @@ return (
                                                     </div>
 
                                                     <div className="space-y-1">
-                                                        <CalendarPicker
+                                                        <label htmlFor="mm-edit-date" className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block px-1">Registration Date</label>
+                                                        <input
                                                             id="mm-edit-date"
-                                                            label="Registration Date"
+                                                            name="mm-edit-date"
+                                                            type="date"
+                                                            className="w-full bg-slate-50 dark:bg-slate-955 border border-slate-200 dark:border-white/10 rounded-[10px] px-4 py-2.5 text-slate-900 dark:text-white focus:border-primary/50 outline-none focus:ring-4 ring-primary/5 transition-all font-semibold text-xs"
                                                             value={(formData as any).date ? new Date((formData as any).date).toISOString().split('T')[0] : ''}
-                                                            onChange={dateStr => {
-                                                                const d = new Date(dateStr);
+                                                            onChange={e => {
+                                                                const d = new Date(e.target.value);
                                                                 setFormData({ ...formData, date: isNaN(d.getTime()) ? '' : d.toISOString() } as any);
                                                             }}
                                                         />
@@ -1492,10 +1470,10 @@ return (
                 const matchedApp = membershipApps.find(app => app.email === liveProfile.email) || {};
                 const initials = `${liveProfile.name?.[0] ?? 'M'}`.toUpperCase();
                 const userDoc = usersMap[(matchedApp as any).uid];
-                const displayPhotoUrl = liveProfile.image || (matchedApp as any).photoUrl || userDoc?.photoUrl;
+                const displayPhotoUrl = userDoc?.photoUrl || liveProfile.image || (matchedApp as any).photoUrl;
 
                 return (
-                    <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
+                    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
                         <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setSelectedProfile(null)}></div>
                         <div className="bg-white dark:bg-[#1E293B] rounded-3xl w-full max-w-3xl max-h-[92vh] flex flex-col relative z-50 shadow-2xl border border-slate-200 dark:border-white/10 overflow-hidden animate-modal-pop text-left text-slate-900 dark:text-white">
                             
@@ -1773,35 +1751,21 @@ return (
                                                                         {MEMBERSHIP_DOC_LABELS[docId] || docId}
                                                                     </p>
                                                                     <div className="space-y-1.5">
-                                                                        {files.map((file: any, idx: number) => {
-                                                                            const isVideo = docId === 'walkthrough_video';
-                                                                            return (
-                                                                                <div key={idx} className="space-y-2">
-                                                                                    <button
-                                                                                        type="button"
-                                                                                        onClick={() => setViewerFile({ url: file.url, name: file.name })}
-                                                                                        className="w-full flex items-center gap-2.5 p-2 bg-white dark:bg-slate-800 rounded-lg border border-slate-100 dark:border-white/5 hover:border-primary transition-colors group text-left"
-                                                                                    >
-                                                                                        <span className="material-symbols-outlined text-primary text-sm">
-                                                                                            {isVideo ? 'movie' : 'description'}
-                                                                                        </span>
-                                                                                        <span className="flex-1 min-w-0 text-[11px] font-semibold text-slate-700 dark:text-slate-200 truncate group-hover:text-primary transition-colors">
-                                                                                            {file.name}
-                                                                                        </span>
-                                                                                        <span className="material-symbols-outlined text-slate-455 group-hover:text-primary text-xs">visibility</span>
-                                                                                    </button>
-                                                                                    {isVideo && (
-                                                                                        <div className="mt-2 bg-slate-955 dark:bg-slate-900 rounded-xl overflow-hidden shadow-inner border border-slate-200/50 dark:border-white/5">
-                                                                                            <video 
-                                                                                                src={file.url} 
-                                                                                                controls 
-                                                                                                className="w-full max-h-56 object-contain bg-black"
-                                                                                            />
-                                                                                        </div>
-                                                                                    )}
-                                                                                </div>
-                                                                            );
-                                                                        })}
+                                                                        {files.map((file: any, idx: number) => (
+                                                                            <button
+                                                                                key={idx}
+                                                                                onClick={() => setViewerFile({ url: file.url, name: file.name })}
+                                                                                className="w-full flex items-center gap-2.5 p-2 bg-white dark:bg-slate-800 rounded-lg border border-slate-100 dark:border-white/5 hover:border-primary transition-colors group text-left"
+                                                                            >
+                                                                                <span className="material-symbols-outlined text-primary text-sm">
+                                                                                    {docId === 'walkthrough_video' ? 'movie' : 'description'}
+                                                                                </span>
+                                                                                <span className="flex-1 min-w-0 text-[11px] font-semibold text-slate-700 dark:text-slate-200 truncate group-hover:text-primary transition-colors">
+                                                                                    {file.name}
+                                                                                </span>
+                                                                                <span className="material-symbols-outlined text-slate-455 group-hover:text-primary text-xs">visibility</span>
+                                                                            </button>
+                                                                        ))}
                                                                     </div>
                                                                 </div>
                                                             );
@@ -2284,7 +2248,7 @@ return (
                     </p>
 
                     <div className="mb-1">
-                        <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5">
+                        <label htmlFor="delete-confirm-password" className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5">
                             Your Password
                         </label>
                         <input

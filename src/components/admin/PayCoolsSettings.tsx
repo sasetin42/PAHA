@@ -113,6 +113,8 @@ const PayCoolsSettings: React.FC = () => {
                 const data = paycoolsDoc.data();
                 setRealtimeSettings(data);
             }
+        }, (err) => {
+            console.error('[PayCoolsSettings] Gateway settings error:', err);
         });
         return () => unsubscribe();
     }, []);
@@ -130,6 +132,8 @@ const PayCoolsSettings: React.FC = () => {
                 ...doc.data()
             } as AuditLog));
             setAuditLogs(logs);
+        }, (err) => {
+            console.error('[PayCoolsSettings] Audit logs error:', err);
         });
         return () => unsubscribe();
     }, []);
@@ -358,7 +362,7 @@ const PayCoolsSettings: React.FC = () => {
                             <p className="text-xs text-slate-500">Configure connection details for the PayCools payment gateway.</p>
                         </div>
                         <div className="flex items-center gap-3">
-                            <label className="text-sm font-semibold text-slate-600 dark:text-slate-300">Enable PayCools</label>
+                            <span className="text-sm font-semibold text-slate-600 dark:text-slate-300">Enable PayCools</span>
                             <button
                                 type="button"
                                 onClick={() => setSettings(prev => ({ ...prev, enabled: !prev.enabled }))}

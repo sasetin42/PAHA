@@ -1,6 +1,6 @@
 // Import the functions you need from the SDKs you need
-import { initializeApp } from "firebase/app";
-import { initializeFirestore } from "firebase/firestore";
+import { initializeApp, getApps, getApp } from "firebase/app";
+import { initializeFirestore, getFirestore, type Firestore } from "firebase/firestore";
 
 // Your web app's Firebase configuration
 const firebaseConfig = {
@@ -16,12 +16,17 @@ import { getStorage } from "firebase/storage";
 import { getAuth, setPersistence, browserLocalPersistence, indexedDBLocalPersistence } from "firebase/auth";
 import { getFunctions } from "firebase/functions";
 
-// Initialize Firebase
-const app = initializeApp(firebaseConfig);
-const db = initializeFirestore(app, {
-    experimentalForceLongPolling: true,
-    experimentalAutoDetectLongPolling: false,
-});
+// Initialize Firebase safely (handles Vite HMR re-evaluations)
+const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
+
+let db: Firestore;
+try {
+    db = initializeFirestore(app, {
+        experimentalAutoDetectLongPolling: true,
+    });
+} catch (e) {
+    db = getFirestore(app);
+}
 const storage = getStorage(app);
 const auth = getAuth(app);
 const functions = getFunctions(app);

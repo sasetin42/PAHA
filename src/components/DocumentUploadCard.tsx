@@ -121,10 +121,14 @@ const DocumentUploadCard: React.FC<DocumentUploadCardProps> = ({
         <div className="p-6 pt-0 border-t border-slate-100 dark:border-slate-700">
           {!readOnly && (
             <div className="relative group mb-4">
+              <label htmlFor={`doc-upload-${categoryId}`} className="sr-only">Upload documents for {title}</label>
               <input
+                id={`doc-upload-${categoryId}`}
+                name={`doc-upload-${categoryId}`}
                 type="file"
                 multiple
                 onChange={(e) => onFileUpload(categoryId, e.target.files)}
+                aria-label={`Upload documents for ${title}`}
                 className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
                 disabled={readOnly}
               />

@@ -7,38 +7,56 @@ import Layout from './components/Layout';
 import { AuthProvider } from './context/AuthContext';
 import ProtectedRoute from './components/ProtectedRoute';
 import ErrorBoundary from './components/ErrorBoundary';
+import LoadingScreen from './components/LoadingScreen';
 
-const Home = lazy(() => import('./pages/Home'));
-const Membership = lazy(() => import('./pages/Membership'));
-const Events = lazy(() => import('./pages/Events'));
-const Association = lazy(() => import('./pages/Association'));
-const Contact = lazy(() => import('./pages/Contact'));
-const MyRegistrations = lazy(() => import('./pages/MyRegistrations'));
-const ArchivedEvents = lazy(() => import('./pages/ArchivedEvents'));
-const Calendar = lazy(() => import('./pages/Calendar'));
-const EventDetail = lazy(() => import('./pages/EventDetail'));
-const MembershipApplication = lazy(() => import('./pages/MembershipApplication'));
-const AssociateMemberApplication = lazy(() => import('./pages/AssociateMemberApplication'));
-const Benefits = lazy(() => import('./pages/Benefits'));
-const MembersDirectory = lazy(() => import('./pages/MembersDirectory'));
-const AccreditedClinics = lazy(() => import('./pages/AccreditedClinics'));
-const FindAVet = lazy(() => import('./pages/FindAVet'));
-const AccreditationManager = lazy(() => import('./pages/AccreditationManager'));
-const Committees = lazy(() => import('./pages/Committees'));
-const CommitteeDetail = lazy(() => import('./pages/CommitteeDetail'));
-const AdminDashboard = lazy(() => import('./pages/AdminDashboard'));
-const AdminLogin = lazy(() => import('./pages/AdminLogin'));
-const MemberLogin = lazy(() => import('./pages/MemberLogin'));
-const AuthAction = lazy(() => import('./pages/AuthAction'));
-const MemberDashboard = lazy(() => import('./pages/MemberDashboard'));
-const PaymentPage = lazy(() => import('./pages/PaymentPage'));
-const PaymentSuccess = lazy(() => import('./pages/PaymentSuccess'));
-const PaymentPending = lazy(() => import('./pages/PaymentPending'));
-const PrivacyPolicy = lazy(() => import('./pages/PrivacyPolicy'));
-const TermsOfService = lazy(() => import('./pages/TermsOfService'));
-const AccreditationRequirements = lazy(() => import('./pages/AccreditationRequirements'));
-const Sitemap = lazy(() => import('./pages/Sitemap'));
-const NotFound = lazy(() => import('./pages/NotFound'));
+const lazyWithRetry = (componentImport: () => Promise<any>) =>
+  lazy(async () => {
+    const pageHasBeenReloaded = sessionStorage.getItem('page-has-been-reloaded');
+    try {
+      const component = await componentImport();
+      sessionStorage.removeItem('page-has-been-reloaded');
+      return component;
+    } catch (error) {
+      if (!pageHasBeenReloaded) {
+        sessionStorage.setItem('page-has-been-reloaded', 'true');
+        window.location.reload();
+        return new Promise<any>(() => {});
+      }
+      throw error;
+    }
+  });
+
+const Home = lazyWithRetry(() => import('./pages/Home'));
+const Membership = lazyWithRetry(() => import('./pages/Membership'));
+const Events = lazyWithRetry(() => import('./pages/Events'));
+const Association = lazyWithRetry(() => import('./pages/Association'));
+const Contact = lazyWithRetry(() => import('./pages/Contact'));
+const MyRegistrations = lazyWithRetry(() => import('./pages/MyRegistrations'));
+const ArchivedEvents = lazyWithRetry(() => import('./pages/ArchivedEvents'));
+const Calendar = lazyWithRetry(() => import('./pages/Calendar'));
+const EventDetail = lazyWithRetry(() => import('./pages/EventDetail'));
+const MembershipApplication = lazyWithRetry(() => import('./pages/MembershipApplication'));
+const AssociateMemberApplication = lazyWithRetry(() => import('./pages/AssociateMemberApplication'));
+const Benefits = lazyWithRetry(() => import('./pages/Benefits'));
+const MembersDirectory = lazyWithRetry(() => import('./pages/MembersDirectory'));
+const AccreditedClinics = lazyWithRetry(() => import('./pages/AccreditedClinics'));
+const FindAVet = lazyWithRetry(() => import('./pages/FindAVet'));
+const AccreditationManager = lazyWithRetry(() => import('./pages/AccreditationManager'));
+const Committees = lazyWithRetry(() => import('./pages/Committees'));
+const CommitteeDetail = lazyWithRetry(() => import('./pages/CommitteeDetail'));
+const AdminDashboard = lazyWithRetry(() => import('./pages/AdminDashboard'));
+const AdminLogin = lazyWithRetry(() => import('./pages/AdminLogin'));
+const MemberLogin = lazyWithRetry(() => import('./pages/MemberLogin'));
+const AuthAction = lazyWithRetry(() => import('./pages/AuthAction'));
+const MemberDashboard = lazyWithRetry(() => import('./pages/MemberDashboard'));
+const PaymentPage = lazyWithRetry(() => import('./pages/PaymentPage'));
+const PaymentSuccess = lazyWithRetry(() => import('./pages/PaymentSuccess'));
+const PaymentPending = lazyWithRetry(() => import('./pages/PaymentPending'));
+const PrivacyPolicy = lazyWithRetry(() => import('./pages/PrivacyPolicy'));
+const TermsOfService = lazyWithRetry(() => import('./pages/TermsOfService'));
+const AccreditationRequirements = lazyWithRetry(() => import('./pages/AccreditationRequirements'));
+const Sitemap = lazyWithRetry(() => import('./pages/Sitemap'));
+const NotFound = lazyWithRetry(() => import('./pages/NotFound'));
 import { CustomNotificationProvider } from './context/CustomNotificationContext';
 
 function App() {
@@ -46,11 +64,11 @@ function App() {
     <AuthProvider>
       <AdminProvider>
         <CustomNotificationProvider>
-          <Router>
+          <Router unstable_useTransitions={true}>
             <ScrollToTop />
             <Layout>
               <ErrorBoundary>
-                <Suspense fallback={<div className="min-h-screen flex items-center justify-center"><div className="size-10 border-4 border-primary border-t-transparent rounded-full animate-spin" /></div>}>
+                <Suspense fallback={<LoadingScreen />}>
                   <Routes>
                     <Route path="/" element={<Home />} />
                     <Route path="/membership" element={<Membership />} />

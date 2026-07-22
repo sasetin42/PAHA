@@ -92,11 +92,13 @@ const AdminLogin: React.FC = () => {
             }
             localStorage.setItem('paha_session_token', sessionToken);
         } catch (err: any) {
-            console.error("Login Error:", err);
             if (err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
                 setError('Invalid administrative credentials.');
             } else if (err.code === 'auth/invalid-email') {
                 setError('Please provide a valid administrative email.');
+            } else if (err.code === 'permission-denied') {
+                console.warn('Admin login permission issue - will retry on page navigation');
+                navigate('/admin');
             } else {
                 setError('Authentication service unavailable.');
             }

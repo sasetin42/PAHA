@@ -174,6 +174,8 @@ const Membership: React.FC = () => {
         Object.keys(byEmail).forEach(k => delete byEmail[k]);
         snap.docs.forEach(d => { byEmail[d.id] = { id: d.id, ...d.data() }; });
         emit();
+      }, (err) => {
+        console.error('[Membership] App by email error:', err);
       }));
     }
     if (user?.uid) {
@@ -182,6 +184,8 @@ const Membership: React.FC = () => {
         Object.keys(byUid).forEach(k => delete byUid[k]);
         snap.docs.forEach(d => { byUid[d.id] = { id: d.id, ...d.data() }; });
         emit();
+      }, (err) => {
+        console.error('[Membership] App by uid error:', err);
       }));
     }
     return () => unsubs.forEach(u => u());

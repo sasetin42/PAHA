@@ -5,6 +5,7 @@ import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { INITIAL_MEMBERS_DATA } from '../data/initialMembers';
 import type { InitialMember } from '../data/initialMembers';
+import { cleanPhoneInput } from '../utils/phone';
 
 interface Representative {
     id: string;
@@ -190,10 +191,10 @@ const AssociateMemberApplication: React.FC = () => {
 
     const ReadOnlyField = ({ label, value }: { label: string; value: string }) => (
         <div className="space-y-1.5">
-            <label className="text-xs font-bold text-slate-500 dark:text-slate-400 ml-1 uppercase tracking-wider flex items-center gap-1">
+            <p className="text-xs font-bold text-slate-500 dark:text-slate-400 ml-1 uppercase tracking-wider flex items-center gap-1">
                 {label}
                 <span className="material-symbols-outlined text-[12px] text-slate-400">lock</span>
-            </label>
+            </p>
             <div className="w-full px-5 py-4 rounded-xl border bg-slate-100 dark:bg-slate-900/30 border-slate-200 dark:border-slate-700/50 text-slate-500 dark:text-slate-400 text-sm font-medium cursor-not-allowed">
                 {value || '—'}
             </div>
@@ -240,10 +241,11 @@ const AssociateMemberApplication: React.FC = () => {
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-1.5 md:col-span-2">
-                    <label className="text-xs font-bold text-slate-600 dark:text-slate-400 ml-1 uppercase tracking-wider">
+                    <label htmlFor={`assoc-rep-${index}-fullName`} className="text-xs font-bold text-slate-600 dark:text-slate-400 ml-1 uppercase tracking-wider">
                         Name of Representative <span className="text-red-500">*</span>
                     </label>
                     <input
+                        id={`assoc-rep-${index}-fullName`}
                         type="text"
                         required
                         placeholder="Full legal name"
@@ -254,10 +256,11 @@ const AssociateMemberApplication: React.FC = () => {
                     />
                 </div>
                 <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-slate-600 dark:text-slate-400 ml-1 uppercase tracking-wider">
+                    <label htmlFor={`assoc-rep-${index}-designation`} className="text-xs font-bold text-slate-600 dark:text-slate-400 ml-1 uppercase tracking-wider">
                         Designation <span className="text-red-500">*</span>
                     </label>
                     <select
+                        id={`assoc-rep-${index}-designation`}
                         required
                         disabled={!isClinicSelected}
                         className={inp(!isClinicSelected) + ' appearance-none'}
@@ -275,10 +278,11 @@ const AssociateMemberApplication: React.FC = () => {
                 </div>
                 {rep.designation === 'Others' && (
                     <div className="space-y-1.5">
-                        <label className="text-xs font-bold text-slate-600 dark:text-slate-400 ml-1 uppercase tracking-wider">
+                        <label htmlFor={`assoc-rep-${index}-designationOther`} className="text-xs font-bold text-slate-600 dark:text-slate-400 ml-1 uppercase tracking-wider">
                             Specify Designation <span className="text-red-500">*</span>
                         </label>
                         <input
+                            id={`assoc-rep-${index}-designationOther`}
                             type="text"
                             required
                             placeholder="Enter designation"
@@ -290,10 +294,11 @@ const AssociateMemberApplication: React.FC = () => {
                     </div>
                 )}
                 <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-slate-600 dark:text-slate-400 ml-1 uppercase tracking-wider">
+                    <label htmlFor={`assoc-rep-${index}-prcLicense`} className="text-xs font-bold text-slate-600 dark:text-slate-400 ml-1 uppercase tracking-wider">
                         PRC License No.
                     </label>
                     <input
+                        id={`assoc-rep-${index}-prcLicense`}
                         type="text"
                         placeholder="e.g. 0012345"
                         disabled={!isClinicSelected}
@@ -311,11 +316,11 @@ const AssociateMemberApplication: React.FC = () => {
                     />
                 </div>
                 <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-slate-600 dark:text-slate-400 ml-1 uppercase tracking-wider">
+                    <label htmlFor={`assoc-rep-${index}-contactNo`} className="text-xs font-bold text-slate-600 dark:text-slate-400 ml-1 uppercase tracking-wider">
                         Contact No. <span className="text-red-500">*</span>
                     </label>
                     <div className="relative flex items-center w-full">
-                        <div className="absolute left-3 flex items-center gap-1.5 text-xs font-bold text-slate-500 dark:text-slate-400 select-none pointer-events-none">
+                        <div className="absolute left-3 flex items-center gap-1.5 text-xs font-bold text-slate-500 dark:text-slate-450 select-none pointer-events-none">
                             <svg viewBox="0 0 30 20" className="w-5 h-3.5 rounded-sm shadow-sm shrink-0 border border-slate-200/20" aria-hidden="true">
                                 <rect width="30" height="20" fill="#f5f5f5"/>
                                 <rect width="30" height="10" fill="#0038A8"/>
@@ -329,24 +334,24 @@ const AssociateMemberApplication: React.FC = () => {
                             <span className="font-semibold">+63</span>
                         </div>
                         <input
+                            id={`assoc-rep-${index}-contactNo`}
                             type="tel"
                             required
                             placeholder="9XX XXX XXXX"
                             disabled={!isClinicSelected}
                             className={inp(!isClinicSelected) + ' pl-16'}
-                            value={rep.contactNo ? (rep.contactNo.startsWith('+63') ? rep.contactNo.slice(3) : rep.contactNo.startsWith('63') && rep.contactNo.length === 12 ? rep.contactNo.slice(2) : rep.contactNo.startsWith('0') && rep.contactNo.length === 11 ? rep.contactNo.slice(1) : rep.contactNo) : ''}
-                            onChange={e => {
-                                const cleaned = e.target.value.replace(/\D/g, '').slice(0, 10);
-                                onUpdate('contactNo', cleaned);
-                            }}
+                            value={cleanPhoneInput(rep.contactNo)}
+                            onChange={e => onUpdate('contactNo', cleanPhoneInput(e.target.value))}
+                            maxLength={10}
                         />
                     </div>
                 </div>
                 <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-slate-600 dark:text-slate-400 ml-1 uppercase tracking-wider">
+                    <label htmlFor={`assoc-rep-${index}-email`} className="text-xs font-bold text-slate-600 dark:text-slate-400 ml-1 uppercase tracking-wider">
                         Email <span className="text-red-500">*</span>
                     </label>
                     <input
+                        id={`assoc-rep-${index}-email`}
                         type="email"
                         required
                         placeholder="representative@email.com"
@@ -427,11 +432,12 @@ const AssociateMemberApplication: React.FC = () => {
 
                                 {/* ── Clinic Name Dropdown ── */}
                                 <div className="space-y-1.5">
-                                    <label className="text-sm font-bold text-slate-700 dark:text-slate-300 ml-1">
+                                    <label htmlFor="assoc-clinicName" className="text-sm font-bold text-slate-700 dark:text-slate-300 ml-1">
                                         Clinic Name <span className="text-red-500">*</span>
                                     </label>
                                     <div className="relative">
                                         <select
+                                            id="assoc-clinicName"
                                             required
                                             className="w-full px-5 py-4 pr-10 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-blue-500/20 focus:border-[#2563EB] outline-none transition-all appearance-none cursor-pointer font-medium"
                                             value={formData.clinicName}
@@ -537,7 +543,7 @@ const AssociateMemberApplication: React.FC = () => {
                                     {REQUIRED_DOCS.map(doc => (
                                         <div key={doc.id} className="space-y-2">
                                             <div className="flex justify-between items-center">
-                                                <label className="text-sm font-bold text-slate-700 dark:text-slate-300">
+                                                <label htmlFor={`assoc-doc-${doc.id}`} className="text-sm font-bold text-slate-700 dark:text-slate-300">
                                                     {doc.label} <span className="text-red-500 ml-0.5">*</span>
                                                 </label>
                                                 <span className="text-[10px] font-bold uppercase text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded">Required</span>
@@ -551,6 +557,7 @@ const AssociateMemberApplication: React.FC = () => {
                                                     : 'border-slate-200 dark:border-slate-700 hover:border-[#2563EB] hover:bg-slate-50 dark:hover:bg-slate-900/30'
                                             }`}>
                                                 <input
+                                                    id={`assoc-doc-${doc.id}`}
                                                     type="file"
                                                     accept=".pdf,.jpg,.jpeg,.png"
                                                     className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
@@ -683,8 +690,9 @@ const AssociateMemberApplication: React.FC = () => {
                                     </div>
 
                                     {/* Confirmation */}
-                                    <label className="flex items-start gap-4 p-5 bg-blue-50 dark:bg-blue-900/10 border border-blue-200 dark:border-blue-900/30 rounded-2xl cursor-pointer hover:bg-blue-100/50 transition-colors">
+                                    <label htmlFor="assoc-confirmed" className="flex items-start gap-4 p-5 bg-blue-50 dark:bg-blue-900/10 border border-blue-200 dark:border-blue-900/30 rounded-2xl cursor-pointer hover:bg-blue-100/50 transition-colors">
                                         <input
+                                            id="assoc-confirmed"
                                             type="checkbox"
                                             className="size-5 rounded border-blue-300 text-[#2563EB] focus:ring-[#2563EB] mt-0.5"
                                             checked={formData.confirmed}

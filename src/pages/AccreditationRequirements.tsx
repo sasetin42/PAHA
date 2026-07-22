@@ -118,10 +118,10 @@ const requirements = [
 const AccreditationRequirements: React.FC = () => {
     return (
         <div className="min-h-screen bg-background-light dark:bg-background-dark-navy font-display text-slate-900 dark:text-white antialiased pb-20">
-            <main className="hero-pt pb-20">
+            <main className="pt-20 md:pt-24 pb-20">
 
                 {/* Hero Section */}
-                <section className="pt-20 lg:pt-24 px-6 max-w-7xl mx-auto pb-6 relative z-10">
+                <section className="pt-4 md:pt-6 px-6 max-w-7xl mx-auto pb-6 relative z-10">
                     <div className="relative rounded-[2rem] overflow-hidden bg-slate-950 text-white min-h-[420px] md:min-h-[48vh] flex items-center p-6 md:p-10 lg:p-12 shadow-2xl border border-white/5">
                         {/* Background Overlay */}
                         <div className="absolute inset-0 z-0">

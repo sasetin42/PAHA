@@ -11,8 +11,7 @@ import { getEmbeddableUrl } from '../utils/portalUrl';
 import { cleanPhone } from '../utils/phone';
 import VisitingEvaluationModal from './VisitingEvaluationModal';
 import FileViewerModal, { type ViewerFile } from './FileViewerModal';
-import CalendarPicker from './CalendarPicker';
-
+import LoadingScreen from './LoadingScreen';
 
 const MEMBERSHIP_DOC_LABELS: Record<string, string> = {
     sec_articles: 'SEC Articles of Incorporation and By-Laws',
@@ -35,6 +34,16 @@ function showToast(message: string, type: 'success' | 'error' = 'success') {
     document.body.appendChild(toast);
     setTimeout(() => toast.remove(), 3200);
 }
+
+
+const getFileIcon = (name: string) => {
+    const ext = name.split('.').pop()?.toLowerCase() || '';
+    if (ext === 'pdf') return { name: 'picture_as_pdf', color: 'text-rose-500' };
+    if (['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp'].includes(ext)) return { name: 'image', color: 'text-blue-500' };
+    if (['mp4', 'mov', 'avi', 'webm', 'mkv'].includes(ext)) return { name: 'movie', color: 'text-amber-500' };
+    if (['zip', 'rar', '7z', 'tar', 'gz'].includes(ext)) return { name: 'folder_zip', color: 'text-purple-500' };
+    return { name: 'description', color: 'text-slate-500' };
+};
 
 interface Props {
     appId: string;
@@ -64,6 +73,35 @@ const InspectApplicationModal: React.FC<Props> = ({ appId, adminRole = 'editor',
     // coordinates a new one directly with them via chat, then types it here —
     // this sets the visit date immediately, no member re-acceptance needed.
     const [resendDate, setResendDate] = useState('');
+    const [activeTab, setActiveTab] = useState<'inspect' | 'self_assessment' | 'payment'>('inspect');
+    const [officialReceiptNo, setOfficialReceiptNo] = useState('');
+
+    const [liveAccreditationFee, setLiveAccreditationFee] = useState(15000);
+    const [liveAccreditationProcessingFee, setLiveAccreditationProcessingFee] = useState(2500);
+
+    useEffect(() => {
+        const unsub = onSnapshot(doc(db, 'systemSettings', 'accreditation'), (snap) => {
+            if (snap.exists()) {
+                const data = snap.data();
+                setLiveAccreditationFee(data.baseFee || 15000);
+                const feeEnabled = data.enableProcessingFee !== undefined ? data.enableProcessingFee : true;
+                setLiveAccreditationProcessingFee(feeEnabled ? (data.processingFee !== undefined ? data.processingFee : 2500) : 0);
+            }
+        }, (err) => {
+            console.error('[InspectAppModal] Acc settings error:', err);
+        });
+        return () => unsub();
+    }, []);
+
+    const totalAmount = app?.paymentData?.amount !== undefined 
+        ? app.paymentData.amount 
+        : (liveAccreditationFee + liveAccreditationProcessingFee);
+
+    const processingFee = app?.paymentData?.amount !== undefined
+        ? (app.paymentData.amount > liveAccreditationProcessingFee ? liveAccreditationProcessingFee : 0)
+        : liveAccreditationProcessingFee;
+
+    const accreditationFee = totalAmount - processingFee;
 
     // Live-sync the application document
     useEffect(() => {
@@ -74,6 +112,9 @@ const InspectApplicationModal: React.FC<Props> = ({ appId, adminRole = 'editor',
                 setApp(data);
                 setSelectedVisitDate(prev => prev || data.loiData?.preferredVisitDates?.[0] || '');
             }
+            setLoading(false);
+        }, (err) => {
+            console.error('[InspectAppModal] Application error:', err);
             setLoading(false);
         });
         return () => unsub();
@@ -94,6 +135,8 @@ const InspectApplicationModal: React.FC<Props> = ({ appId, adminRole = 'editor',
             const data = snap.data();
             setClinicDeactivated(data?.accountStatus === 'deactivated');
             setClinicProfile(data || null);
+        }, (err) => {
+            console.error('[InspectAppModal] User doc error:', err);
         });
         return () => unsub();
     }, [app?.clinicId]);
@@ -137,10 +180,7 @@ const InspectApplicationModal: React.FC<Props> = ({ appId, adminRole = 'editor',
     if (loading || !app) {
         return (
             <div className="fixed inset-0 z-[900] flex items-center justify-center bg-slate-900/80 backdrop-blur-sm">
-                <div className="flex flex-col items-center gap-4">
-                    <span className="animate-spin border-4 border-white/20 border-t-white rounded-full size-10" />
-                    <p className="text-white font-semibold">Loading application…</p>
-                </div>
+                <LoadingScreen fullScreen={false} message="PAHA • LOADING ACCREDITATION APPLICATION" />
             </div>
         );
     }
@@ -438,7 +478,7 @@ const InspectApplicationModal: React.FC<Props> = ({ appId, adminRole = 'editor',
             const accreditationNo = `PAHA-ACC-${year}-${Math.floor(10000 + Math.random() * 90000)}`;
             const validUntil = new Date();
             validUntil.setFullYear(validUntil.getFullYear() + 1);
-            await updateDoc(doc(db, 'accreditation_applications', app.id), {
+            const updatePayload: Record<string, any> = {
                 status: 'accredited',
                 stage: 8,
                 'paymentData.confirmedAt': new Date().toISOString(),
@@ -446,7 +486,12 @@ const InspectApplicationModal: React.FC<Props> = ({ appId, adminRole = 'editor',
                 'paymentData.validUntil': validUntil.toISOString(),
                 completedAt: serverTimestamp(),
                 updatedAt: serverTimestamp(),
-            });
+            };
+            if (officialReceiptNo.trim()) {
+                updatePayload['paymentData.officialReceiptNo'] = officialReceiptNo.trim();
+                updatePayload['paymentData.bankRefNo'] = officialReceiptNo.trim();
+            }
+            await updateDoc(doc(db, 'accreditation_applications', app.id), updatePayload);
             if (app.clinicId) {
                 await updateDoc(doc(db, 'users', app.clinicId), { isAccredited: true }).catch(() => {});
                 const memberDocs = await getDocs(query(collection(db, 'members'), where('email', '==', app.loiData?.email || '')));
@@ -472,6 +517,7 @@ const InspectApplicationModal: React.FC<Props> = ({ appId, adminRole = 'editor',
     const statusBadge = () => {
         if (app.status === 'rejected') return <span className="px-4 py-1.5 rounded-full bg-red-100 text-red-700 font-bold text-xs uppercase">Rejected</span>;
         if (app.status === 'accredited') return <span className="px-4 py-1.5 rounded-full bg-emerald-100 text-emerald-700 font-bold text-xs uppercase">Accredited</span>;
+        if (app.status === 'payment_submitted') return <span className="px-4 py-1.5 rounded-full bg-purple-100 text-purple-700 font-bold text-xs uppercase">Payment Submitted</span>;
         if (app.status === 'paid') return <span className="px-4 py-1.5 rounded-full bg-emerald-100 text-emerald-700 font-bold text-xs uppercase">Paid</span>;
         if (app.status === 'for_payment') return <span className="px-4 py-1.5 rounded-full bg-blue-100 text-blue-700 font-bold text-xs uppercase">For Payment</span>;
         if (app.status === 'needs_compliance') return <span className="px-4 py-1.5 rounded-full bg-red-100 text-red-700 font-bold text-xs uppercase">Failed</span>;
@@ -509,16 +555,18 @@ const InspectApplicationModal: React.FC<Props> = ({ appId, adminRole = 'editor',
             <div className="fixed inset-0 z-[900] flex flex-col bg-[#F8FAFC] dark:bg-[#0F172A] overflow-hidden animate-slide-in-right">
                 {/* Header */}
                 <div className="flex items-center gap-4 px-6 py-4 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-white/10 shrink-0">
-              <button
-                onClick={onClose}
-                className="p-2 rounded-[10px] hover:bg-slate-100 dark:hover:bg-white/5 text-slate-500 transition-colors z-10"
-                title="Back"
-              >
-                        <span className="material-symbols-outlined">arrow_back</span>
+                    <button
+                        id="inspect-app-modal-back-btn"
+                        type="button"
+                        onClick={onClose}
+                        className="size-12 rounded-2xl bg-[#2563EB] text-white hover:bg-blue-700 shadow-lg shadow-blue-500/25 transition-all flex items-center justify-center shrink-0 z-20 cursor-pointer active:scale-95"
+                        title="Back to Accreditation Table"
+                    >
+                        <span className="material-symbols-outlined text-2xl font-bold">arrow_back</span>
                     </button>
                     <div>
-                        <h2 className="text-2xl font-semibold uppercase tracking-tight text-slate-900 dark:text-white">Inspect Application</h2>
-                        <p className="text-sm text-slate-500 font-mono">{app.loiData?.loiRef || app.id}</p>
+                        <h2 className="text-2xl font-black uppercase tracking-tight text-slate-900 dark:text-white leading-tight">Inspect Application</h2>
+                        <p className="text-xs text-slate-500 font-mono tracking-wider mt-0.5">{app.loiData?.loiRef || app.id}</p>
                     </div>
                     <div className="ml-auto flex items-center gap-3">
                         {statusBadge()}
@@ -540,32 +588,97 @@ const InspectApplicationModal: React.FC<Props> = ({ appId, adminRole = 'editor',
                     </div>
                 </div>
 
+                {/* Navigation Tabs Bar */}
+                <div className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-white/10 px-6 py-2.5 flex items-center gap-2 overflow-x-auto shrink-0 z-10 shadow-xs">
+                    <button
+                        type="button"
+                        id="tab-inspect-application"
+                        onClick={() => setActiveTab('inspect')}
+                        className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-extrabold uppercase tracking-wider transition-all cursor-pointer ${
+                            activeTab === 'inspect'
+                                ? 'bg-[#2563EB] text-white shadow-md shadow-blue-500/20'
+                                : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-white/5'
+                        }`}
+                    >
+                        <span className="material-symbols-outlined text-lg">assignment</span>
+                        <span>Inspect Application</span>
+                    </button>
+
+                    <button
+                        type="button"
+                        id="tab-self-assessment-summary"
+                        onClick={() => setActiveTab('self_assessment')}
+                        className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-extrabold uppercase tracking-wider transition-all cursor-pointer ${
+                            activeTab === 'self_assessment'
+                                ? 'bg-[#2563EB] text-white shadow-md shadow-blue-500/20'
+                                : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-white/5'
+                        }`}
+                    >
+                        <span className="material-symbols-outlined text-lg">fact_check</span>
+                        <span>Self-Assessment Summary</span>
+                        {saData && (
+                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${activeTab === 'self_assessment' ? 'bg-white/20 text-white' : 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300'}`}>
+                                {(saData as any).score ?? (saData as any).totalScore ?? 0} pts
+                            </span>
+                        )}
+                    </button>
+
+                    <button
+                        type="button"
+                        id="tab-payment-details"
+                        onClick={() => setActiveTab('payment')}
+                        className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-extrabold uppercase tracking-wider transition-all cursor-pointer ${
+                            activeTab === 'payment'
+                                ? 'bg-[#2563EB] text-white shadow-md shadow-blue-500/20'
+                                : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-white/5'
+                        }`}
+                    >
+                        <span className="material-symbols-outlined text-lg">payments</span>
+                        <span>Payment Details</span>
+                        {(app.status === 'for_payment' || app.status === 'paid' || app.paymentData?.proofOfPaymentUrl || app.paymentData?.paymentProofUrl) && (
+                            <span className="size-2 rounded-full bg-emerald-500 animate-pulse" />
+                        )}
+                    </button>
+                </div>
+
                 {/* Body */}
                 <div className="flex-1 overflow-y-auto p-6">
-                    <div className="max-w-7xl mx-auto grid grid-cols-1 xl:grid-cols-3 gap-4">
+                    {/* TAB 1: INSPECT APPLICATION */}
+                    {activeTab === 'inspect' && (
+                        <div className="max-w-7xl mx-auto grid grid-cols-1 xl:grid-cols-3 gap-4">
                         {/* Left column */}
                         <div className="xl:col-span-2 space-y-4">
 
                             {/* Clinic Info */}
-                            <div className="bg-white dark:bg-slate-800/40 rounded-[10px] border border-slate-200 dark:border-white/5 p-4">
-                                <h3 className="text-xs font-bold uppercase tracking-widest text-slate-400 mb-4">Clinic Information</h3>
-                                <div className="grid grid-cols-2 gap-4">
+                            <div className="bg-white dark:bg-slate-800/40 rounded-3xl border border-slate-200 dark:border-white/5 p-6 shadow-sm">
+                                <h3 className="text-xs font-black uppercase tracking-widest text-slate-400 mb-4">Clinic Information</h3>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     {[
-                                        { label: 'Clinic Name', value: app.clinicName },
-                                        { label: 'Representative', value: app.loiData?.representativeName },
-                                        { label: 'Title', value: app.loiData?.representativeTitle },
-                                        { label: 'PRC License', value: app.loiData?.prcLicenseNo },
-                                        { label: 'Email', value: app.loiData?.email },
-                                        { label: 'Phone', value: cleanPhone(app.loiData?.phone) },
+                                        { label: 'Clinic Name', value: app.clinicName, icon: 'storefront', color: 'text-blue-500 bg-blue-50 dark:bg-blue-950/30 border border-blue-100/50 dark:border-blue-500/10' },
+                                        { label: 'Representative', value: app.loiData?.representativeName, icon: 'person', color: 'text-emerald-500 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-100/50 dark:border-emerald-500/10' },
+                                        { label: 'Title', value: app.loiData?.representativeTitle, icon: 'badge', color: 'text-violet-500 bg-violet-50 dark:bg-violet-950/30 border border-violet-100/50 dark:border-violet-500/10' },
+                                        { label: 'PRC License', value: app.loiData?.prcLicenseNo, icon: 'featured_play_list', color: 'text-amber-500 bg-amber-50 dark:bg-amber-950/30 border border-amber-100/50 dark:border-amber-500/10' },
+                                        { label: 'Email', value: app.loiData?.email, icon: 'mail', color: 'text-pink-500 bg-pink-50 dark:bg-pink-950/30 border border-pink-100/50 dark:border-pink-500/10' },
+                                        { label: 'Phone', value: cleanPhone(app.loiData?.phone), icon: 'call', color: 'text-teal-500 bg-teal-50 dark:bg-teal-950/30 border border-teal-100/50 dark:border-teal-500/10' },
                                     ].map((f, i) => (
-                                        <div key={i}>
-                                            <p className="text-[9px] font-bold uppercase tracking-widest text-slate-400 mb-0.5">{f.label}</p>
-                                            <p className="text-sm font-semibold text-slate-900 dark:text-white">{f.value || '—'}</p>
+                                        <div key={i} className="flex items-center gap-3.5 p-3 rounded-2xl bg-slate-50/50 dark:bg-white/[0.02] border border-slate-100 dark:border-white/5">
+                                            <div className={`size-10 rounded-xl flex items-center justify-center shrink-0 ${f.color}`}>
+                                                <span className="material-symbols-outlined text-xl font-semibold">{f.icon}</span>
+                                            </div>
+                                            <div className="min-w-0 flex-1">
+                                                <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-0.5">{f.label}</p>
+                                                <p className="text-xs font-bold text-slate-800 dark:text-slate-100 truncate leading-snug">{f.value || '—'}</p>
+                                            </div>
                                         </div>
                                     ))}
-                                    <div className="col-span-2">
-                                        <p className="text-[9px] font-bold uppercase tracking-widest text-slate-400 mb-0.5">Clinic Address</p>
-                                        <p className="text-sm font-semibold text-slate-900 dark:text-white">{app.loiData?.clinicAddress || '—'}</p>
+                                    <div className="col-span-1 md:col-span-2 flex items-center gap-3.5 p-3 rounded-2xl bg-slate-50/50 dark:bg-white/[0.02] border border-slate-100 dark:border-white/5">
+                                        <div className="size-10 rounded-xl flex items-center justify-center shrink-0 text-rose-500 bg-rose-50 dark:bg-rose-950/30 border border-rose-100/50 dark:border-rose-500/10">
+                                            <span className="material-symbols-outlined text-xl font-semibold">location_on</span>
+                                        </div>
+                                        <div className="min-w-0 flex-1">
+                                            <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-0.5">Clinic Address</p>
+                                            <p className="text-xs font-bold text-slate-800 dark:text-slate-100 leading-normal">{app.loiData?.clinicAddress || '—'}</p>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -582,7 +695,7 @@ const InspectApplicationModal: React.FC<Props> = ({ appId, adminRole = 'editor',
                                             <span className="material-symbols-outlined text-sm">open_in_new</span>Open in new tab
                                         </a>
                                     </div>
-                                    <iframe src={getEmbeddableUrl(app.loiPdfUrl)} className="w-full h-[500px]" title="LOI Document" />
+                                     <iframe src={getEmbeddableUrl(app.loiPdfUrl)} className="w-full h-[500px] border-0" title="LOI Document" />
                                 </div>
                             ) : (
                                 <div className="bg-white dark:bg-slate-800/40 rounded-[10px] border border-dashed border-slate-200 dark:border-white/10 p-5 text-center">
@@ -694,12 +807,14 @@ const InspectApplicationModal: React.FC<Props> = ({ appId, adminRole = 'editor',
                                             ) : (
                                                 <div className="mt-3 p-3 rounded-[10px] border border-slate-200 dark:border-white/10 space-y-2">
                                                     <label htmlFor="iap-propose-date" className="text-[10px] font-bold text-slate-500 uppercase tracking-widest block">Propose Alternate Date</label>
-                                                    <CalendarPicker
-                                                         id="iap-propose-date"
-                                                         value={proposeDate}
-                                                         onChange={setProposeDate}
-                                                         minYear={new Date().getFullYear()}
-                                                         maxYear={new Date().getFullYear() + 2}
+                                                    <input
+                                                        id="iap-propose-date"
+                                                        name="iapProposeDate"
+                                                        type="date"
+                                                        value={proposeDate}
+                                                        min={minVisitDateStr}
+                                                        onChange={e => setProposeDate(e.target.value)}
+                                                        className="w-full px-3 py-2 text-sm border border-slate-200 dark:border-white/10 rounded-[10px] bg-white dark:bg-slate-900 outline-none focus:ring-2 focus:ring-primary/20"
                                                     />
                                                     <div className="flex gap-2">
                                                         <button onClick={() => { setShowProposeDate(false); setProposeDate(''); }} className="flex-1 py-2 text-xs font-bold rounded-[10px] border border-slate-200 text-slate-500 hover:bg-slate-50 transition-colors">Cancel</button>
@@ -740,12 +855,14 @@ const InspectApplicationModal: React.FC<Props> = ({ appId, adminRole = 'editor',
                                     {adminRole !== 'viewer' && (
                                         <div className="space-y-2">
                                             <label htmlFor="iap-resend-date" className="text-[10px] font-bold text-slate-500 uppercase tracking-widest block">New Site Visit Date</label>
-                                            <CalendarPicker
-                                                 id="iap-resend-date"
-                                                 value={resendDate}
-                                                 onChange={setResendDate}
-                                                 minYear={new Date().getFullYear()}
-                                                 maxYear={new Date().getFullYear() + 2}
+                                            <input
+                                                id="iap-resend-date"
+                                                name="iapResendDate"
+                                                type="date"
+                                                value={resendDate}
+                                                min={minVisitDateStr}
+                                                onChange={e => setResendDate(e.target.value)}
+                                                className="w-full px-3 py-2 text-sm border border-slate-200 dark:border-white/10 rounded-[10px] bg-white dark:bg-slate-900 outline-none focus:ring-2 focus:ring-primary/20"
                                             />
                                             <button
                                                 onClick={handleSendRescheduledDate}
@@ -808,11 +925,14 @@ const InspectApplicationModal: React.FC<Props> = ({ appId, adminRole = 'editor',
                                             </button>
                                         ) : (
                                             <div className="space-y-3">
+                                                <label htmlFor="iap-fail-reason" className="sr-only">Reason for rejection</label>
                                                 <textarea
                                                     id="iap-fail-reason"
+                                                    name="iapFailReason"
                                                     value={failReason}
                                                     onChange={e => setFailReason(e.target.value)}
                                                     placeholder="Enter reason for rejection..."
+                                                    aria-label="Reason for rejection"
                                                     rows={3}
                                                     className="w-full px-4 py-3 text-sm border border-slate-200 dark:border-white/10 rounded-[10px] bg-white dark:bg-slate-900 focus:ring-2 focus:ring-red-500 outline-none resize-none"
                                                 />
@@ -942,41 +1062,75 @@ const InspectApplicationModal: React.FC<Props> = ({ appId, adminRole = 'editor',
                             )}
 
                             {/* Uploaded compliance files (business documents from onboarding) */}
-                            {(memberDocs.length > 0 || catDocs.length > 0) && (
-                                <div className="bg-white dark:bg-slate-800/40 rounded-[10px] border border-slate-200 dark:border-white/5 p-4">
-                                    <h3 className="text-xs font-bold uppercase tracking-widest text-slate-400 mb-4">Uploaded Files</h3>
-                                    <div className="space-y-4">
-                                        {memberDocs.map(([docId, files]) => (
-                                            <div key={docId}>
-                                                <p className="text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1.5">{MEMBERSHIP_DOC_LABELS[docId] || docId}</p>
-                                                <div className="space-y-1.5">
-                                                    {files.map((file: any, idx: number) => (
-                                                        <button key={idx} onClick={() => setViewerFile({ url: file.url, name: file.name })} className="w-full flex items-center gap-2 p-2 bg-slate-50 dark:bg-slate-900 rounded-[10px] border border-slate-100 dark:border-white/5 hover:border-primary/40 transition-colors group text-left">
-                                                            <span className="material-symbols-outlined text-primary text-sm">description</span>
-                                                            <span className="flex-1 min-w-0 text-xs font-medium text-slate-700 dark:text-slate-200 truncate">{file.name}</span>
-                                                            <span className="material-symbols-outlined text-sm text-slate-400 group-hover:text-primary">visibility</span>
-                                                        </button>
-                                                    ))}
-                                                </div>
+                            {(() => {
+                                const allFiles = [
+                                    ...memberDocs.flatMap(([docId, files]) => 
+                                        files.map((file: any) => ({
+                                            ...file,
+                                            label: MEMBERSHIP_DOC_LABELS[docId] || docId,
+                                            type: 'member'
+                                        }))
+                                    ),
+                                    ...catDocs.flatMap((c) => 
+                                        c.files.map((file: any) => ({
+                                            ...file,
+                                            label: c.title,
+                                            type: 'category'
+                                        }))
+                                    )
+                                ];
+
+                                return (
+                                    <div className="bg-white dark:bg-slate-800/40 rounded-[10px] border border-slate-200 dark:border-white/5 p-4">
+                                        <h3 className="text-xs font-bold uppercase tracking-widest text-slate-400 mb-4">Uploaded Files</h3>
+                                        {allFiles.length > 0 ? (
+                                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                                {allFiles.map((file: any, idx: number) => {
+                                                    const iconData = getFileIcon(file.name);
+                                                    return (
+                                                        <div key={idx} className="bg-white/70 dark:bg-slate-900/40 backdrop-blur-md border border-slate-200/50 dark:border-white/10 hover:border-primary/30 transition-all hover:shadow-md rounded-2xl p-4 flex flex-col justify-between h-[120px] group">
+                                                            <div className="flex items-start gap-3 min-w-0">
+                                                                <div className={`p-2 rounded-xl shrink-0 ${iconData.color} bg-current/10 flex items-center justify-center`}>
+                                                                    <span className="material-symbols-outlined text-xl">{iconData.name}</span>
+                                                                </div>
+                                                                <div className="min-w-0 flex-1">
+                                                                    <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block truncate">{file.label}</span>
+                                                                    <p className="truncate text-xs font-bold text-slate-800 dark:text-slate-200 mt-1" title={file.name}>{file.name}</p>
+                                                                </div>
+                                                            </div>
+                                                            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100 dark:border-white/5">
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => setViewerFile({ url: file.url, name: file.name })}
+                                                                    className="flex items-center gap-1 text-[11px] font-bold text-primary hover:text-blue-700 dark:hover:text-blue-400 transition-colors"
+                                                                >
+                                                                    <span className="material-symbols-outlined text-sm">visibility</span>
+                                                                    Preview
+                                                                </button>
+                                                                <a
+                                                                    href={file.url}
+                                                                    target="_blank"
+                                                                    rel="noopener noreferrer"
+                                                                    className="flex items-center gap-1 text-[11px] font-bold text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-300 transition-colors"
+                                                                >
+                                                                    <span className="material-symbols-outlined text-sm">open_in_new</span>
+                                                                    Open
+                                                                </a>
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })}
                                             </div>
-                                        ))}
-                                        {catDocs.map((c, i) => (
-                                            <div key={`cat-${i}`}>
-                                                <p className="text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1.5">{c.title}</p>
-                                                <div className="space-y-1.5">
-                                                    {c.files.map((file: any, idx: number) => (
-                                                        <button key={idx} onClick={() => setViewerFile({ url: file.url, name: file.name })} className="w-full flex items-center gap-2 p-2 bg-slate-50 dark:bg-slate-900 rounded-[10px] border border-slate-100 dark:border-white/5 hover:border-primary/40 transition-colors group text-left">
-                                                            <span className="material-symbols-outlined text-primary text-sm">description</span>
-                                                            <span className="flex-1 min-w-0 text-xs font-medium text-slate-700 dark:text-slate-200 truncate">{file.name}</span>
-                                                            <span className="material-symbols-outlined text-sm text-slate-400 group-hover:text-primary">visibility</span>
-                                                        </button>
-                                                    ))}
-                                                </div>
+                                        ) : (
+                                            <div className="flex flex-col items-center justify-center py-8 text-center">
+                                                <span className="material-symbols-outlined text-4xl text-slate-300 dark:text-slate-600 mb-2">folder_off</span>
+                                                <p className="text-xs font-bold text-slate-500 dark:text-slate-400">No compliance files uploaded</p>
+                                                <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-1">This application does not contain any uploaded files.</p>
                                             </div>
-                                        ))}
+                                        )}
                                     </div>
-                                </div>
-                            )}
+                                );
+                            })()}
 
                             {/* Final Review decision — visible for any status once the site visit/VEF has
                                 happened, independent of uploaded files. Nothing here is irrevocable: even
@@ -1002,6 +1156,107 @@ const InspectApplicationModal: React.FC<Props> = ({ appId, adminRole = 'editor',
                                             </p>
                                         </div>
                                     )}
+                                    {/* Manual Payment Approval Card inside Inspection Modal */}
+                                    {(app.status === 'for_payment' || app.status === 'paid' || app.paymentData?.proofOfPaymentUrl || app.paymentData?.paymentProofUrl) && app.status !== 'accredited' && (
+                                        <div className="bg-emerald-50/70 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-500/30 rounded-2xl p-5 space-y-4">
+                                            <div className="flex items-center gap-3">
+                                                <div className="size-10 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center font-bold">
+                                                    <span className="material-symbols-outlined text-xl">payments</span>
+                                                </div>
+                                                <div>
+                                                    <h4 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-tight">Manual Payment Approval</h4>
+                                                    <p className="text-xs text-slate-500">Statement of Account & Submitted Receipt</p>
+                                                    <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-emerald-100 dark:border-emerald-500/20 text-xs space-y-2 mt-3">
+                                                        <div className="flex justify-between text-slate-600 dark:text-slate-300">
+                                                            <span>Accreditation Fee</span>
+                                                            <span className="font-bold">₱{accreditationFee.toLocaleString()}.00</span>
+                                                        </div>
+                                                        <div className="flex justify-between text-slate-600 dark:text-slate-300">
+                                                            <span>Processing Fee</span>
+                                                            <span className="font-bold">₱{processingFee.toLocaleString()}.00</span>
+                                                        </div>
+                                                        <div className="border-t border-slate-100 dark:border-slate-800 pt-2 flex justify-between font-extrabold text-emerald-700 dark:text-emerald-400 text-sm">
+                                                            <span>Total Payment Amount</span>
+                                                            <span>₱{totalAmount.toLocaleString()}.00</span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            {(app.paymentData?.proofOfPaymentUrl || app.paymentData?.paymentProofUrl) && (
+                                                <div>
+                                                    <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400 block mb-1.5">Submitted Deposit Slip / Receipt</span>
+                                                    <div className="relative w-full flex items-center gap-4 p-4 bg-gradient-to-br from-amber-50/60 to-white dark:from-slate-900 dark:to-slate-850 border-2 border-dashed border-amber-300 dark:border-amber-500/30 rounded-2xl overflow-hidden shadow-sm">
+                                                        {/* Punchout Holes */}
+                                                        <div className="absolute left-[-6px] top-0 bottom-0 flex flex-col justify-around py-3 pointer-events-none z-10">
+                                                            {[...Array(5)].map((_, i) => (
+                                                                <div key={i} className="w-2.5 h-2.5 rounded-full bg-emerald-50 dark:bg-slate-950 border border-amber-300/40 dark:border-amber-500/20 shadow-inner" />
+                                                            ))}
+                                                        </div>
+
+                                                        {/* Thumbnail Preview */}
+                                                        <div 
+                                                            onClick={() => setViewerFile({ url: app.paymentData?.paymentProofUrl || (app as any).paymentProofUrl, name: 'Payment Proof Receipt' })}
+                                                            className="relative size-16 rounded-xl overflow-hidden bg-slate-900/10 border border-amber-200 dark:border-slate-800 shadow-sm cursor-pointer group flex-shrink-0 ml-2"
+                                                        >
+                                                            <img
+                                                                src={app.paymentData?.paymentProofUrl || (app as any).paymentProofUrl}
+                                                                alt="Deposit Slip"
+                                                                className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
+                                                            />
+                                                            <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                                                <span className="material-symbols-outlined text-white text-base">zoom_in</span>
+                                                            </div>
+                                                        </div>
+
+                                                        {/* Info & Details */}
+                                                        <div className="flex-1 min-w-0">
+                                                            <p className="text-xs font-bold text-slate-800 dark:text-white truncate">Payment Receipt / Deposit Slip</p>
+                                                            <p className="text-[10px] text-slate-400 mt-1 flex items-center gap-1">
+                                                                <span className="material-symbols-outlined text-[12px]">calendar_today</span>
+                                                                {app.paymentData?.triggeredAt ? new Date(app.paymentData.triggeredAt).toLocaleString() : 'Date N/A'}
+                                                            </p>
+                                                        </div>
+
+                                                        {/* Dual Actions */}
+                                                        <div className="flex flex-col gap-1.5">
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setViewerFile({ url: app.paymentData?.paymentProofUrl || (app as any).paymentProofUrl, name: 'Payment Proof Receipt' })}
+                                                                className="size-8 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-white/10 flex items-center justify-center text-slate-600 dark:text-slate-300 hover:text-emerald-600 dark:hover:text-emerald-400 hover:border-emerald-500 transition-all shadow-sm"
+                                                                title="Open Document Viewer"
+                                                            >
+                                                                <span className="material-symbols-outlined text-sm font-bold">visibility</span>
+                                                            </button>
+                                                            <a
+                                                                href={app.paymentData?.paymentProofUrl || (app as any).paymentProofUrl}
+                                                                target="_blank"
+                                                                rel="noopener noreferrer"
+                                                                className="size-8 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-white/10 flex items-center justify-center text-slate-600 dark:text-slate-300 hover:text-emerald-600 dark:hover:text-emerald-400 hover:border-emerald-500 transition-all shadow-sm"
+                                                                title="Open in New Tab"
+                                                            >
+                                                                <span className="material-symbols-outlined text-sm font-bold">open_in_new</span>
+                                                            </a>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {adminRole !== 'viewer' && (
+                                                <button
+                                                    type="button"
+                                                    id="inspect-approve-payment-btn"
+                                                    onClick={handleConfirmAccreditation}
+                                                    disabled={accredActionLoading}
+                                                    className="w-full py-3.5 rounded-xl font-black text-xs uppercase tracking-wider bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg shadow-emerald-600/20 transition-all flex items-center justify-center gap-2 disabled:opacity-40 cursor-pointer active:scale-95"
+                                                >
+                                                    {accredActionLoading ? <span className="animate-spin border-2 border-white/30 border-t-white rounded-full size-4" /> : <span className="material-symbols-outlined text-base font-bold">verified</span>}
+                                                    Approve Payment & Issue Accreditation
+                                                </button>
+                                            )}
+                                        </div>
+                                    )}
+
                                     {app.status === 'paid' && (
                                         <button
                                             onClick={handleConfirmAccreditation}
@@ -1034,11 +1289,14 @@ const InspectApplicationModal: React.FC<Props> = ({ appId, adminRole = 'editor',
                                             </button>
                                         ) : (
                                             <div className="space-y-2">
+                                                <label htmlFor="iap-decline-reason" className="sr-only">Reason for declining</label>
                                                 <textarea
                                                     id="iap-decline-reason"
+                                                    name="iapDeclineReason"
                                                     value={declineReason}
                                                     onChange={e => setDeclineReason(e.target.value)}
                                                     placeholder="Enter reason for declining (required)..."
+                                                    aria-label="Reason for declining"
                                                     rows={3}
                                                     className="w-full px-4 py-3 text-sm border border-slate-200 dark:border-white/10 rounded-[10px] bg-white dark:bg-slate-900 focus:ring-2 focus:ring-red-500 outline-none resize-none"
                                                 />
@@ -1054,8 +1312,338 @@ const InspectApplicationModal: React.FC<Props> = ({ appId, adminRole = 'editor',
                                 </div>
                                 );
                             })()}
+                            </div>
                         </div>
-                    </div>
+                    )}
+
+                    {/* TAB 2: SELF-ASSESSMENT SUMMARY */}
+                    {activeTab === 'self_assessment' && (
+                        <div className="max-w-7xl mx-auto space-y-6">
+                            {/* Summary Banner */}
+                            {saData ? (() => {
+                                const score = (saData as any).score ?? (saData as any).totalScore ?? 0;
+                                const maxScore = 300;
+                                const pct = Math.round((score / maxScore) * 100);
+                                const gaps = computeGapSummary(STANDARD_2026, saData.checkedItems || {});
+
+                                return (
+                                    <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-[#0A0F1A] rounded-3xl p-6 text-white shadow-xl border border-white/10 relative overflow-hidden">
+                                        <div className="absolute top-0 right-0 w-64 h-64 rounded-full border-4 border-white/5 -translate-y-1/2 translate-x-1/2" />
+                                        <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
+                                            <div className="space-y-2">
+                                                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-500/20 border border-blue-400/30 text-blue-300 text-xs font-bold uppercase tracking-wider">
+                                                    <span className="material-symbols-outlined text-sm">fact_check</span>
+                                                    Self-Assessment Overview
+                                                </div>
+                                                <h3 className="text-2xl font-black tracking-tight">{app.clinicName}</h3>
+                                                <p className="text-xs text-slate-300">
+                                                    Submitted on {saData.submittedAt ? new Date(saData.submittedAt).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) : 'Date not specified'}
+                                                </p>
+                                            </div>
+
+                                            <div className="flex items-center gap-4 bg-white/5 backdrop-blur-md p-4 rounded-2xl border border-white/10">
+                                                <div className="text-center px-4 border-r border-white/10">
+                                                    <div className="text-3xl font-black text-blue-400">{score}</div>
+                                                    <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Total Points</div>
+                                                </div>
+                                                <div className="text-center px-4 border-r border-white/10">
+                                                    <div className="text-3xl font-black text-emerald-400">{pct}%</div>
+                                                    <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Compliance</div>
+                                                </div>
+                                                <div className="text-center px-4">
+                                                    <div className={`text-xl font-black ${gaps.length === 0 ? 'text-emerald-400' : 'text-amber-400'}`}>
+                                                        {gaps.length === 0 ? 'Passed' : `${gaps.length} Gaps`}
+                                                    </div>
+                                                    <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Status</div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                );
+                            })() : (
+                                <div className="bg-white dark:bg-slate-800/40 rounded-3xl border border-slate-200 dark:border-white/5 p-8 text-center">
+                                    <span className="material-symbols-outlined text-4xl text-slate-300 mb-2 block">pending_actions</span>
+                                    <h4 className="text-base font-bold text-slate-700 dark:text-slate-200">No Self-Assessment Submitted</h4>
+                                    <p className="text-xs text-slate-400 mt-1">The applicant has not yet submitted their self-evaluation checklist.</p>
+                                </div>
+                            )}
+
+                            {/* Category Breakdown Cards */}
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                {ASSESSMENT_CATEGORIES.map(cat => {
+                                    const catData = app.complianceData?.categories?.[cat.id];
+                                    const files = catData?.uploadedFiles || [];
+                                    const remarks = (catData as any)?.remarks || '';
+                                    const section = (STANDARD_2026 as any[]).find((s: any) => s.id === cat.id);
+                                    const sectionMax = section ? sectionTotalPoints(section) : 0;
+                                    
+                                    let catScore = 0;
+                                    if (saData?.checkedItems) {
+                                        catScore = Object.entries(saData.checkedItems)
+                                            .filter(([key, checked]) => checked && key.startsWith(cat.id))
+                                            .length * 10;
+                                    }
+
+                                    return (
+                                        <div key={cat.id} className="bg-white dark:bg-slate-800/40 rounded-2xl border border-slate-200 dark:border-white/5 p-5 flex flex-col justify-between space-y-4 shadow-sm hover:border-primary/30 transition-all">
+                                            <div className="space-y-3">
+                                                <div className="flex items-start justify-between gap-2">
+                                                    <div>
+                                                        <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Category {cat.id}</span>
+                                                        <h4 className="text-sm font-bold text-slate-900 dark:text-white leading-snug">{cat.title}</h4>
+                                                    </div>
+                                                    <span className="px-2.5 py-1 rounded-lg bg-blue-50 dark:bg-blue-950/30 text-blue-600 dark:text-blue-400 text-xs font-black shrink-0">
+                                                        {catScore} / {sectionMax || 50} pts
+                                                    </span>
+                                                </div>
+
+                                                {remarks && (
+                                                    <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-white/5 text-xs text-slate-600 dark:text-slate-300">
+                                                        <span className="text-[10px] font-bold uppercase text-slate-400 block mb-0.5">Applicant Notes:</span>
+                                                        {remarks}
+                                                    </div>
+                                                )}
+                                            </div>
+
+                                            {/* Proof Files for Category */}
+                                            <div className="pt-2 border-t border-slate-100 dark:border-white/5">
+                                                <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400 block mb-2">Category Files ({files.length})</span>
+                                                {files.length > 0 ? (
+                                                    <div className="space-y-1.5">
+                                                        {files.map((file: any, idx: number) => (
+                                                            <button
+                                                                key={idx}
+                                                                type="button"
+                                                                onClick={() => setViewerFile({ url: file.url, name: file.name })}
+                                                                className="w-full flex items-center gap-2 p-2 bg-slate-50 dark:bg-slate-900 rounded-xl border border-slate-200/60 dark:border-white/5 hover:border-primary/40 transition-colors text-left group"
+                                                            >
+                                                                <span className="material-symbols-outlined text-primary text-sm">description</span>
+                                                                <span className="flex-1 min-w-0 text-xs font-medium text-slate-700 dark:text-slate-200 truncate">{file.name}</span>
+                                                                <span className="material-symbols-outlined text-sm text-slate-400 group-hover:text-primary">visibility</span>
+                                                            </button>
+                                                        ))}
+                                                    </div>
+                                                ) : (
+                                                    <p className="text-xs text-slate-400 italic">No files attached for this category.</p>
+                                                )}
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* TAB 3: PAYMENT DETAILS */}
+                    {activeTab === 'payment' && (
+                        <div className="max-w-6xl mx-auto space-y-6">
+                            {/* Header Overview Card */}
+                            <div className="bg-white dark:bg-slate-800/40 rounded-3xl border border-slate-200 dark:border-white/5 p-6 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-6">
+                                <div className="space-y-2">
+                                    <div className="flex items-center gap-3">
+                                        <div className="size-12 rounded-2xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center font-black">
+                                            <span className="material-symbols-outlined text-2xl">payments</span>
+                                        </div>
+                                        <div>
+                                            <h3 className="text-lg font-black text-slate-900 dark:text-white uppercase tracking-tight">Accreditation Payment Details</h3>
+                                            <p className="text-xs text-slate-500">Transaction summary, Statement of Account & Manual Payment verification</p>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="flex items-center gap-3">
+                                    <div className="text-right">
+                                        <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Current Payment Status</div>
+                                        <div className="mt-1">{statusBadge()}</div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                                {/* Left column — Statement of Account & Transaction Reference */}
+                                <div className="lg:col-span-2 space-y-6">
+                                    {/* Statement of Account Breakdown */}
+                                    <div className="bg-white dark:bg-slate-800/40 rounded-3xl border border-slate-200 dark:border-white/5 p-6 shadow-sm space-y-4">
+                                        <h4 className="text-xs font-bold uppercase tracking-widest text-slate-400 flex items-center gap-2">
+                                            <span className="material-symbols-outlined text-sm">receipt</span>
+                                            Statement of Account Breakdown
+                                        </h4>
+                                        <div className="space-y-3">
+                                            <div className="flex justify-between items-center py-2.5 border-b border-slate-100 dark:border-white/5 text-sm">
+                                                <span className="text-slate-600 dark:text-slate-300 font-medium">PAHA Accreditation Base Fee</span>
+                                                <span className="font-extrabold text-slate-900 dark:text-white">₱{accreditationFee.toLocaleString()}.00</span>
+                                            </div>
+                                            <div className="flex justify-between items-center py-2.5 border-b border-slate-100 dark:border-white/5 text-sm">
+                                                <span className="text-slate-600 dark:text-slate-300 font-medium">Administrative Processing & Verification Fee</span>
+                                                <span className="font-extrabold text-slate-900 dark:text-white">₱{processingFee.toLocaleString()}.00</span>
+                                            </div>
+                                            <div className="flex justify-between items-center pt-2 text-base font-black text-emerald-600 dark:text-emerald-400">
+                                                <span>Total Amount Due / Paid</span>
+                                                <span className="text-2xl tabular-nums">₱{totalAmount.toLocaleString()}.00</span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Transaction Audit Metadata */}
+                                    <div className="bg-white dark:bg-slate-800/40 rounded-3xl border border-slate-200 dark:border-white/5 p-6 shadow-sm space-y-4">
+                                        <h4 className="text-xs font-bold uppercase tracking-widest text-slate-400 flex items-center gap-2">
+                                            <span className="material-symbols-outlined text-sm">info</span>
+                                            Transaction Audit Log
+                                        </h4>
+
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+                                            <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-white/5">
+                                                <span className="text-[10px] font-bold uppercase text-slate-400 block mb-1">Application Reference</span>
+                                                <span className="font-mono font-bold text-slate-900 dark:text-white">{app.loiData?.loiRef || app.id}</span>
+                                            </div>
+                                            <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-white/5">
+                                                <span className="text-[10px] font-bold uppercase text-slate-400 block mb-1">Payment Channel</span>
+                                                <span className="font-bold text-slate-900 dark:text-white">
+                                                    {app.paymentData?.paymentMethod === 'manual' ? 'Manual Bank Transfer (UnionBank)' : (app.paymentData?.paymentMethod || 'Online Gateway')}
+                                                </span>
+                                            </div>
+                                            <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-white/5">
+                                                <span className="text-[10px] font-bold uppercase text-slate-400 block mb-1">Submitted Date</span>
+                                                <span className="font-bold text-slate-900 dark:text-white">
+                                                    {app.paymentData?.triggeredAt ? new Date(app.paymentData.triggeredAt).toLocaleString() : 'N/A'}
+                                                </span>
+                                            </div>
+                                            <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-white/5">
+                                                <span className="text-[10px] font-bold uppercase text-slate-400 block mb-1">Accreditation Number</span>
+                                                <span className="font-mono font-extrabold text-emerald-600 dark:text-emerald-400">
+                                                    {app.paymentData?.accreditationNo || 'Pending Issue'}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Right column — Deposit Slip Preview & Manual Approval Card */}
+                                <div className="space-y-6">
+                                    {/* Submitted Deposit Slip Receipt */}
+                                    <div className="bg-white dark:bg-slate-800/40 rounded-3xl border border-slate-200 dark:border-white/5 p-6 shadow-sm space-y-4">
+                                        <h4 className="text-xs font-bold uppercase tracking-widest text-slate-400 flex items-center gap-2">
+                                            <span className="material-symbols-outlined text-sm">receipt_long</span>
+                                            Proof of Payment Receipt
+                                        </h4>
+
+                                        {(app.paymentData?.paymentProofUrl || (app as any).paymentProofUrl) ? (
+                                            <div className="relative w-full flex items-center gap-4 p-4 bg-gradient-to-br from-amber-50/60 to-white dark:from-slate-900 dark:to-slate-850 border-2 border-dashed border-amber-300 dark:border-amber-500/30 rounded-2xl overflow-hidden shadow-sm">
+                                                {/* Punchout Holes */}
+                                                <div className="absolute left-[-6px] top-0 bottom-0 flex flex-col justify-around py-3 pointer-events-none z-10">
+                                                    {[...Array(5)].map((_, i) => (
+                                                        <div key={i} className="w-2.5 h-2.5 rounded-full bg-white dark:bg-slate-900 border border-amber-300/40 dark:border-amber-500/20 shadow-inner" />
+                                                    ))}
+                                                </div>
+
+                                                {/* Thumbnail Preview */}
+                                                <div 
+                                                    onClick={() => setViewerFile({ url: app.paymentData?.paymentProofUrl || (app as any).paymentProofUrl, name: 'Proof of Payment Deposit Slip' })}
+                                                    className="relative size-20 rounded-xl overflow-hidden bg-slate-900/10 border border-amber-200 dark:border-slate-800 shadow-sm cursor-pointer group flex-shrink-0 ml-2"
+                                                >
+                                                    <img
+                                                        src={app.paymentData?.paymentProofUrl || (app as any).paymentProofUrl}
+                                                        alt="Deposit Slip"
+                                                        className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
+                                                    />
+                                                    <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                                        <span className="material-symbols-outlined text-white text-lg">zoom_in</span>
+                                                    </div>
+                                                </div>
+
+                                                {/* Info & Details */}
+                                                <div className="flex-1 min-w-0">
+                                                    <p className="text-xs font-bold text-slate-800 dark:text-white truncate">Payment Receipt / Deposit Slip</p>
+                                                    <p className="text-[10px] text-slate-400 mt-1 flex items-center gap-1">
+                                                        <span className="material-symbols-outlined text-[12px]">calendar_today</span>
+                                                        {app.paymentData?.triggeredAt ? new Date(app.paymentData.triggeredAt).toLocaleString() : 'Date N/A'}
+                                                    </p>
+                                                </div>
+
+                                                {/* Dual Actions */}
+                                                <div className="flex flex-col gap-1.5">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setViewerFile({ url: app.paymentData?.paymentProofUrl || (app as any).paymentProofUrl, name: 'Proof of Payment Deposit Slip' })}
+                                                        className="size-9 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-white/10 flex items-center justify-center text-slate-600 dark:text-slate-300 hover:text-emerald-600 dark:hover:text-emerald-400 hover:border-emerald-500 transition-all shadow-sm"
+                                                        title="Open Document Viewer"
+                                                    >
+                                                        <span className="material-symbols-outlined text-base font-bold">visibility</span>
+                                                    </button>
+                                                    <a
+                                                        href={app.paymentData?.paymentProofUrl || (app as any).paymentProofUrl}
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                        className="size-9 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-white/10 flex items-center justify-center text-slate-600 dark:text-slate-300 hover:text-emerald-600 dark:hover:text-emerald-400 hover:border-emerald-500 transition-all shadow-sm"
+                                                        title="Open in New Tab"
+                                                    >
+                                                        <span className="material-symbols-outlined text-base font-bold">open_in_new</span>
+                                                    </a>
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <div className="p-6 rounded-2xl border border-dashed border-slate-200 dark:border-white/10 text-center space-y-2">
+                                                <span className="material-symbols-outlined text-3xl text-slate-300">hide_image</span>
+                                                <p className="text-xs text-slate-400">No deposit slip receipt file attached.</p>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* Manual Payment Review & Approval Action Card */}
+                                    <div className="bg-gradient-to-br from-emerald-600 via-teal-700 to-[#0A0F1A] rounded-3xl p-6 text-white shadow-xl shadow-emerald-600/20 space-y-5 relative overflow-hidden">
+                                        <div className="absolute top-0 right-0 w-32 h-32 rounded-full border-4 border-white/10 -translate-y-1/2 translate-x-1/2" />
+                                        
+                                        <div className="relative z-10 space-y-4">
+                                            <div className="flex items-center gap-3">
+                                                <div className="size-10 rounded-xl bg-white/20 flex items-center justify-center">
+                                                    <span className="material-symbols-outlined text-white text-xl">workspace_premium</span>
+                                                </div>
+                                                <div>
+                                                    <h4 className="text-sm font-black uppercase tracking-wider">Manual Payment Approval</h4>
+                                                    <p className="text-[11px] text-white/70">Issue official accreditation & activate status</p>
+                                                </div>
+                                            </div>
+
+                                            <p className="text-xs text-white/80 leading-relaxed">
+                                                Approving will generate a unique PAHA Accreditation Certificate Number, update status to <strong className="text-white">Accredited</strong>, set account flag <strong className="text-white">isAccredited: true</strong>, and notify the member instantly.
+                                            </p>
+
+                                            <div className="space-y-1.5 pt-1">
+                                                <label htmlFor="iap-official-receipt-no" className="text-[10px] font-bold uppercase tracking-widest text-white/80 block">
+                                                    Official Receipt (OR) / GCash / Bank Ref No. <span className="text-white/60 font-normal">(Optional)</span>
+                                                </label>
+                                                <input
+                                                    id="iap-official-receipt-no"
+                                                    type="text"
+                                                    value={officialReceiptNo}
+                                                    onChange={e => setOfficialReceiptNo(e.target.value)}
+                                                    placeholder="e.g. OR-2026-88992 or GCASH-992384"
+                                                    className="w-full px-4 py-3 rounded-xl bg-white/10 border border-white/20 text-white placeholder-white/40 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-white/40 transition-all"
+                                                />
+                                            </div>
+
+                                            {adminRole !== 'viewer' && (
+                                                <button
+                                                    type="button"
+                                                    id="tab-payment-confirm-accreditation-btn"
+                                                    onClick={handleConfirmAccreditation}
+                                                    disabled={accredActionLoading}
+                                                    className="w-full py-4 rounded-2xl font-black text-xs uppercase tracking-widest bg-white text-emerald-800 hover:bg-emerald-50 shadow-lg shadow-black/30 transition-all flex items-center justify-center gap-2 disabled:opacity-40 cursor-pointer active:scale-95"
+                                                >
+                                                    {accredActionLoading ? (
+                                                        <span className="animate-spin border-2 border-emerald-800/30 border-t-emerald-800 rounded-full size-5" />
+                                                    ) : (
+                                                        <span className="material-symbols-outlined text-lg font-black">verified</span>
+                                                    )}
+                                                    <span>Approve Payment & Issue Accreditation</span>
+                                                </button>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
                 </div>
             </div>
 

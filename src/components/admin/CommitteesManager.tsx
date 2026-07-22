@@ -334,7 +334,7 @@ const CommitteesManager: React.FC = () => {
 
                                 {/* Profile Photo */}
                                 <div>
-                                    <label className="block text-xs font-semibold text-slate-500 uppercase tracking-widest mb-2">Profile Photo Details</label>
+                                    <p className="block text-xs font-semibold text-slate-500 uppercase tracking-widest mb-2">Profile Photo Details</p>
                                     <div className="space-y-4">
                                         <div className="flex flex-col gap-2">
                                             <div className="flex items-center gap-2">

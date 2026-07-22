@@ -131,7 +131,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                     }
                     setLoading(false);
                 }, (error) => {
-                    console.error("Error fetching user profile:", error);
+                    if (error?.code !== 'permission-denied') {
+                        console.warn("Profile fetch error:", error?.code || error);
+                    }
                     setIsAdmin(isSuper);
                     setLoading(false);
                 });

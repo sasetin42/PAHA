@@ -257,6 +257,8 @@ async function postPaycools(url, body) {
 // â”€â”€â”€ Main API Cloud Function â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 exports.paycoolsApi = (0, https_1.onRequest)({
     cors: true,
+    vpcConnector: 'paha-vpc-con',
+    vpcConnectorEgressSettings: 'ALL_TRAFFIC'
 }, async (req, res) => {
     try {
         let path = req.path.replace(/\/+$/, '');
@@ -424,24 +426,33 @@ exports.paycoolsApi = (0, https_1.onRequest)({
                         await db.collection('users').doc(uid).set({
                             hasPaid: true,
                             paidAt: admin.firestore.FieldValue.serverTimestamp(),
-                            membershipStatus: 'active',
+                            membershipStatus: 'approved',
+                            isCertifiedMember: true,
+                            role: 'PAHA Member',
                             isActive: true,
                             paycoolsTransactionId: transactionId
                         }, { merge: true });
-                        // Update membership_applications status to 'paid'
-                        const appQuery = await db.collection('membership_applications')
-                            .where('uid', '==', uid)
-                            .orderBy('createdAt', 'desc')
-                            .limit(1)
-                            .get();
-                        if (!appQuery.empty) {
-                            await appQuery.docs[0].ref.update({
-                                paymentStatus: 'paid',
-                                updatedAt: admin.firestore.FieldValue.serverTimestamp()
-                            });
-                        }
                         const userSnap = await db.collection('users').doc(uid).get();
                         const userData = userSnap.data() || {};
+                        await db.collection('member_notifications').add({
+                            uid: uid,
+                            clinicId: uid,
+                            email: userData.email || regData.email || null,
+                            type: 'membership_approved',
+                            title: 'Membership Payment Confirmed 🎉',
+                            body: 'Congratulations! Your PAHA membership payment via PayCools has been confirmed. Welcome to PAHA as a Certified Member.',
+                            link: 'membership',
+                            read: false,
+                            createdAt: admin.firestore.FieldValue.serverTimestamp()
+                        }).catch((err) => console.error('[paycoolsApi Webhook] Member notification error:', err));
+                        await db.collection('admin_notifications').add({
+                            type: 'application',
+                            title: 'Membership Payment Confirmed (PayCools)',
+                            body: `${userData.clinicName || userData.displayName || 'A member'} paid online via PayCools. Membership activated.`,
+                            link: 'applications',
+                            read: false,
+                            createdAt: admin.firestore.FieldValue.serverTimestamp()
+                        }).catch((err) => console.error('[paycoolsApi Webhook] Admin notification error:', err));
                         await db.collection('members').doc(uid).set({
                             name: userData.clinicName || userData.displayName || '',
                             address: userData.clinicAddress || '',
@@ -451,6 +462,25 @@ exports.paycoolsApi = (0, https_1.onRequest)({
                             isAccredited: false,
                             image: userData.clinicImage || ''
                         }, { merge: true });
+                        try {
+                            const appSnap = await db.collection('membership_applications')
+                                .where('uid', '==', uid)
+                                .orderBy('createdAt', 'desc')
+                                .limit(1)
+                                .get();
+                            if (!appSnap.empty) {
+                                const appDoc = appSnap.docs[0];
+                                await appDoc.ref.update({
+                                    status: 'approved',
+                                    paymentStatus: 'paid',
+                                    reviewedAt: new Date().toISOString(),
+                                    reviewedBy: 'PayCools Webhook (Auto-Approve)'
+                                });
+                            }
+                        }
+                        catch (appErr) {
+                            console.error('[paycoolsApi Webhook] Error updating membership_applications:', appErr);
+                        }
                         console.log(`[paycoolsApi] Webhook completed membership payment for registration: ${txData.localOrderId}`);
                     }
                 }
@@ -875,7 +905,7 @@ exports.paycoolsApi = (0, https_1.onRequest)({
             let cleanMobile = String(mobile || '').replace(/\D/g, '');
             const last10 = cleanMobile.slice(-10);
             if (last10.length === 10 && last10.startsWith('9')) {
-                cleanMobile = '63' + last10;
+                cleanMobile = '0' + last10;
             }
             else {
                 res.status(400).json({ error: 'A valid Philippine mobile number starting with 09 (or +639) is required.' });

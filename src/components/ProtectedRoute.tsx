@@ -1,7 +1,7 @@
 import React from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { useAppearance } from '../hooks/useAppearance';
+import LoadingScreen from './LoadingScreen';
 
 interface ProtectedRouteProps {
     children: React.ReactNode;
@@ -10,39 +10,11 @@ interface ProtectedRouteProps {
 
 const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, adminOnly = false }) => {
     const { user, loading, isAdmin, profile, signOut } = useAuth();
-    const { loadingLogoUrl, logoUrl } = useAppearance();
     const location = useLocation();
 
     // Show loading state while checking auth
     if (loading) {
-        return (
-            <div className="min-h-screen flex flex-col items-center justify-center bg-white dark:bg-white p-4 transition-colors duration-300">
-                <div className="flex flex-col items-center max-w-lg w-full text-center space-y-6">
-                    {/* Logo Section without background box and with modern breathing animation */}
-                    <div className="relative flex items-center justify-center">
-                        <img 
-                            src={loadingLogoUrl || logoUrl || "/paha-logo.png"} 
-                            alt="PAHA Logo" 
-                            loading="eager"
-                            fetchPriority="high"
-                            className="h-40 md:h-48 w-auto object-contain animate-logo-float" 
-                        />
-                    </div>
-
-                    {/* Progress Indicator */}
-                    <div className="flex flex-col items-center space-y-4">
-                        <div className="flex gap-2.5 justify-center items-center h-6">
-                            <span className="w-3 h-3 bg-primary rounded-full animate-modern-dot" style={{ animationDelay: '0ms' }}></span>
-                            <span className="w-3 h-3 bg-primary rounded-full animate-modern-dot" style={{ animationDelay: '200ms' }}></span>
-                            <span className="w-3 h-3 bg-primary rounded-full animate-modern-dot" style={{ animationDelay: '400ms' }}></span>
-                        </div>
-                        <p className="text-[10px] sm:text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-[0.2em] sm:tracking-[0.25em] whitespace-nowrap overflow-hidden text-ellipsis select-none">
-                            PAHA - PHILIPPINES ANIMAL HOSPITAL ASSOCIATION
-                        </p>
-                    </div>
-                </div>
-            </div>
-        );
+        return <LoadingScreen />;
     }
 
     // Redirect to login if not authenticated
@@ -82,11 +54,7 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, adminOnly = f
         );
     }
 
-    return (
-        <div className="animate-fade-in">
-            {children}
-        </div>
-    );
+    return <>{children}</>;
 };
 
 export default ProtectedRoute;

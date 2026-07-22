@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useAdmin } from '../context/AdminContext';
+import { cleanPhoneInput } from '../utils/phone';
 
 interface FAQItem {
     question: string;
@@ -465,11 +466,11 @@ const Contact: React.FC = () => {
                                                 id="contact-phone"
                                                 type="tel"
                                                 required
-                                                value={phone ? (phone.startsWith('+63') ? phone.slice(3) : phone.startsWith('63') && phone.length === 12 ? phone.slice(2) : phone.startsWith('0') && phone.length === 11 ? phone.slice(1) : phone) : ''}
+                                                value={cleanPhoneInput(phone)}
                                                 onChange={(e) => {
-                                                    const cleaned = e.target.value.replace(/\D/g, '').slice(0, 10);
-                                                    setPhone(cleaned);
+                                                    setPhone(cleanPhoneInput(e.target.value));
                                                 }}
+                                                maxLength={10}
                                                 className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl pl-16 pr-4 py-3 text-xs font-semibold focus:ring-2 focus:ring-primary/40 outline-none transition-all placeholder:text-slate-300 dark:placeholder:text-white/5"
                                                 placeholder="900 000 0000"
                                             />
@@ -531,12 +532,13 @@ const Contact: React.FC = () => {
 
                                 {/* Preferred Contact Method */}
                                 <div className="border-t border-slate-100 dark:border-white/5 pt-4 space-y-2">
-                                    <label className="text-[10px] font-extrabold uppercase text-slate-450 dark:text-slate-500 ml-1 block">Preferred Contact Method</label>
+                                    <p className="text-[10px] font-extrabold uppercase text-slate-450 dark:text-slate-500 ml-1 block">Preferred Contact Method</p>
                                     <div className="flex gap-6 pl-1">
                                         {['Email', 'Phone', 'Messenger'].map(m => (
                                             <label key={m} className="flex items-center gap-2 text-xs font-semibold cursor-pointer select-none">
                                                 <input
                                                     type="radio"
+                                                    id={`contact-method-${m}`}
                                                     name="contactMethod"
                                                     value={m}
                                                     checked={contactMethod === m}
@@ -582,7 +584,7 @@ const Contact: React.FC = () => {
 
                                 {/* File Attachment Upload */}
                                 <div className="space-y-1.5 border-t border-slate-100 dark:border-white/5 pt-3">
-                                    <label className="text-[10px] font-extrabold uppercase text-slate-450 dark:text-slate-500 ml-1 block">Attach Support Document (Max 10MB)</label>
+                                    <label htmlFor="contact-attachment" className="text-[10px] font-extrabold uppercase text-slate-450 dark:text-slate-500 ml-1 block">Attach Support Document (Max 10MB)</label>
                                     <div className="flex items-center gap-2">
                                         <button
                                             type="button"
@@ -594,6 +596,8 @@ const Contact: React.FC = () => {
                                         </button>
                                         <input
                                             ref={fileInputRef}
+                                            id="contact-attachment"
+                                            name="contactAttachment"
                                             type="file"
                                             accept=".pdf,.jpg,.png"
                                             onChange={handleFileChange}
@@ -613,6 +617,8 @@ const Contact: React.FC = () => {
                                     <label className="flex items-center gap-2.5 cursor-pointer">
                                         <input
                                             type="checkbox"
+                                            id="contact-captcha"
+                                            name="contactCaptcha"
                                             checked={captchaChecked}
                                             onChange={(e) => setCaptchaChecked(e.target.checked)}
                                             className="text-primary focus:ring-primary h-4.5 w-4.5 rounded"
@@ -631,6 +637,8 @@ const Contact: React.FC = () => {
                                     <label className="flex items-start gap-2.5 cursor-pointer">
                                         <input
                                             type="checkbox"
+                                            id="contact-agree"
+                                            name="contactAgree"
                                             checked={agree}
                                             onChange={(e) => setAgree(e.target.checked)}
                                             className="text-primary focus:ring-primary h-4.5 w-4.5 rounded mt-0.5"

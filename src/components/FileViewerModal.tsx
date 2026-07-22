@@ -16,8 +16,8 @@ interface Props {
 const FileViewerModal: React.FC<Props> = ({ file, onClose }) => {
     if (!file) return null;
 
-    const isImage = /\.(png|jpe?g|gif|webp)$/i.test(file.name);
-    const isVideo = /\.(mp4|mov|webm)$/i.test(file.name);
+    const isImage = /\.(png|jpe?g|gif|webp|svg)(\?.*)?$/i.test(file.url) || /\.(png|jpe?g|gif|webp|svg)$/i.test(file.name) || file.url.startsWith('data:image/');
+    const isVideo = /\.(mp4|mov|webm|ogg)(\?.*)?$/i.test(file.url) || /\.(mp4|mov|webm)$/i.test(file.name) || file.url.startsWith('data:video/');
 
     return (
         <div className="fixed inset-0 z-[10050] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={onClose}>
@@ -38,11 +38,11 @@ const FileViewerModal: React.FC<Props> = ({ file, onClose }) => {
                 </div>
                 <div className="flex-1 bg-slate-100 dark:bg-black overflow-auto flex items-center justify-center">
                     {isImage ? (
-                        <img src={file.url} alt={file.name} className="max-w-full max-h-full object-contain" />
+                        <img src={file.url} alt={file.name} className="max-w-full max-h-full object-contain" onError={(e) => { (e.currentTarget as HTMLElement).style.display = 'none'; }} />
                     ) : isVideo ? (
                         <video src={file.url} controls className="w-full h-full" />
                     ) : (
-                        <iframe src={getEmbeddableUrl(file.url)} title={file.name} className="w-full h-full" />
+                        <iframe src={getEmbeddableUrl(file.url)} title={file.name} className="w-full h-full border-0" />
                     )}
                 </div>
             </div>

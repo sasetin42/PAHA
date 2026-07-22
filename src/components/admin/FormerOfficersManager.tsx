@@ -196,7 +196,7 @@ const FormerOfficersManager: React.FC = () => {
 
                             <div className="space-y-4">
                                 <div className="flex items-center justify-between px-2">
-                                    <label className="text-xs font-semibold text-slate-500 uppercase tracking-widest">Officers List</label>
+                                    <p className="text-xs font-semibold text-slate-500 uppercase tracking-widest">Officers List</p>
                                     <button
                                         type="button"
                                         onClick={handleAddOfficerRow}

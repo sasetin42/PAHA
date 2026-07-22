@@ -18,34 +18,32 @@ export const getMainSiteUrl = (path = '/') => `${getOriginParts()}${path}`;
 
 export const getEmbeddableUrl = (url: string): string => {
     if (!url) return '';
+    const trimmed = url.trim();
+    if (!trimmed || trimmed === 'null' || trimmed === 'undefined' || trimmed.includes('invalid/')) return '';
     
     // Check if it is a Google Drive/Docs URL
-    if (url.includes('drive.google.com') || url.includes('docs.google.com')) {
-        // Handle standard file/d/... format
-        const fileDMatch = url.match(/\/file\/d\/([a-zA-Z0-9_-]+)/);
+    if (trimmed.includes('drive.google.com') || trimmed.includes('docs.google.com')) {
+        const fileDMatch = trimmed.match(/\/file\/d\/([a-zA-Z0-9_-]+)/);
         if (fileDMatch && fileDMatch[1]) {
             return `https://drive.google.com/file/d/${fileDMatch[1]}/preview`;
         }
-        
-        // Handle open?id=... format
-        const idMatch = url.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+        const idMatch = trimmed.match(/[?&]id=([a-zA-Z0-9_-]+)/);
         if (idMatch && idMatch[1]) {
             return `https://drive.google.com/file/d/${idMatch[1]}/preview`;
         }
-
-        // Handle docs/d/... format (Google Docs, Sheets, Slides)
-        const docDMatch = url.match(/\/d\/([a-zA-Z0-9_-]+)/);
+        const docDMatch = trimmed.match(/\/d\/([a-zA-Z0-9_-]+)/);
         if (docDMatch && docDMatch[1]) {
-            if (url.includes('/document/')) {
-                return `https://docs.google.com/document/d/${docDMatch[1]}/preview`;
-            }
-            if (url.includes('/spreadsheets/')) {
-                return `https://docs.google.com/spreadsheets/d/${docDMatch[1]}/preview`;
-            }
-            if (url.includes('/presentation/')) {
-                return `https://docs.google.com/presentation/d/${docDMatch[1]}/preview`;
-            }
+            if (trimmed.includes('/document/')) return `https://docs.google.com/document/d/${docDMatch[1]}/preview`;
+            if (trimmed.includes('/spreadsheets/')) return `https://docs.google.com/spreadsheets/d/${docDMatch[1]}/preview`;
+            if (trimmed.includes('/presentation/')) return `https://docs.google.com/presentation/d/${docDMatch[1]}/preview`;
         }
     }
-    return url;
+
+    // Check if it's a PDF or Firebase Storage document URL (not an image)
+    const isImage = /\.(png|jpe?g|gif|webp|svg)(\?.*)?$/i.test(trimmed) || trimmed.startsWith('data:image/');
+    if (!isImage && (trimmed.includes('.pdf') || trimmed.includes('firebasestorage.googleapis.com'))) {
+        return `https://docs.google.com/viewer?url=${encodeURIComponent(trimmed)}&embedded=true`;
+    }
+
+    return trimmed;
 };

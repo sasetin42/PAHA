@@ -1,7 +1,10 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { db, auth } from '../config/firebase';
 import { collection, addDoc, doc, setDoc, serverTimestamp, getDocs } from 'firebase/firestore';
+import { cleanPhoneInput, formatPhoneForDB } from '../utils/phone';
 import { createUserWithEmailAndPassword, updateProfile, signOut, sendEmailVerification } from 'firebase/auth';
+
+import CustomSelect from './CustomSelect';
 
 type MembershipType = 'Regular' | 'Associate' | 'Institutional' | 'Affiliate';
 type BusinessStructure = 'Sole Proprietorship' | 'Partnership' | 'Corporation' | 'Veterinary Teaching Hospital' | 'University-affiliated teaching hospital';
@@ -27,35 +30,12 @@ interface Props {
     onClose: () => void;
 }
 
-const structureDetails: Record<BusinessStructure, { icon: string; bgClass: string }> = {
-    'Sole Proprietorship': { icon: 'person', bgClass: 'bg-blue-50 text-blue-500 border-blue-100' },
-    'Partnership': { icon: 'handshake', bgClass: 'bg-emerald-50 text-emerald-500 border-emerald-100' },
-    'Corporation': { icon: 'corporate_fare', bgClass: 'bg-indigo-50 text-indigo-500 border-indigo-100' },
-    'Veterinary Teaching Hospital': { icon: 'local_hospital', bgClass: 'bg-rose-50 text-rose-500 border-rose-100' },
-    'University-affiliated teaching hospital': { icon: 'school', bgClass: 'bg-amber-50 text-amber-500 border-amber-100' }
-};
-
 const MembershipFormModal: React.FC<Props> = ({ isOpen, onClose }) => {
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [showSuccess, setShowSuccess] = useState(false);
     const [errorMsg, setErrorMsg] = useState<string | null>(null);
     const [showPassword, setShowPassword] = useState(false);
     const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-    const [isStructureOpen, setIsStructureOpen] = useState(false);
-    const dropdownRef = useRef<HTMLDivElement>(null);
-
-    useEffect(() => {
-        const handleClickOutside = (event: MouseEvent) => {
-            if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-                setIsStructureOpen(false);
-            }
-        };
-        document.addEventListener('mousedown', handleClickOutside);
-        return () => {
-            document.removeEventListener('mousedown', handleClickOutside);
-        };
-    }, []);
-
     const [formData, setFormData] = useState<FormState>({
         membershipType: 'Regular',
         clinicName: '',
@@ -103,10 +83,6 @@ const MembershipFormModal: React.FC<Props> = ({ isOpen, onClose }) => {
         e.preventDefault();
         setErrorMsg(null);
         if (!formData.confirmed) return;
-        if (!formData.businessStructure) {
-            setErrorMsg('Please select a business structure.');
-            return;
-        }
         if (formData.password.length < 6) {
             setErrorMsg('Password must be at least 6 characters.');
             return;
@@ -138,8 +114,8 @@ const MembershipFormModal: React.FC<Props> = ({ isOpen, onClose }) => {
                 clinicName: formData.clinicName,
                 clinicAddress: formData.clinicAddress,
                 address: formData.clinicAddress,
-                phone: formData.phone ? `+63${formData.phone}` : '',
-                representativePhone: formData.representativePhone ? `+63${formData.representativePhone}` : '',
+                phone: formatPhoneForDB(formData.phone),
+                representativePhone: formatPhoneForDB(formData.representativePhone),
                 prcLicense: formData.prcLicenseNo,
                 role: 'member',
                 isAdmin: false,
@@ -164,7 +140,7 @@ const MembershipFormModal: React.FC<Props> = ({ isOpen, onClose }) => {
                         name: formData.representativeName.trim(),
                         designation: 'Primary Representative',
                         prc: formData.prcLicenseNo || '',
-                        contact: formData.representativePhone ? `+63${formData.representativePhone}` : '',
+                        contact: formatPhoneForDB(formData.representativePhone),
                         email: formData.email.trim(),
                         isPrimary: true,
                         status: 'active',
@@ -200,8 +176,8 @@ const MembershipFormModal: React.FC<Props> = ({ isOpen, onClose }) => {
                 clinicName: formData.clinicName,
                 clinicAddress: formData.clinicAddress,
                 address: formData.clinicAddress,
-                mobile: formData.phone ? `+63${formData.phone}` : '',
-                representativePhone: formData.representativePhone ? `+63${formData.representativePhone}` : '',
+                mobile: formatPhoneForDB(formData.phone),
+                representativePhone: formatPhoneForDB(formData.representativePhone),
                 createdAt: serverTimestamp(),
                 date: new Date().toISOString(),
                 status: 'pending'
@@ -443,14 +419,9 @@ const MembershipFormModal: React.FC<Props> = ({ isOpen, onClose }) => {
                                                      required 
                                                      placeholder="9XX XXX XXXX" 
                                                      className={inputCls + ' pl-16'}
-                                                     value={formData.phone ? (formData.phone.startsWith('+63') ? formData.phone.slice(3) : formData.phone.startsWith('63') && formData.phone.length === 12 ? formData.phone.slice(2) : formData.phone.startsWith('0') && formData.phone.length === 11 ? formData.phone.slice(1) : formData.phone) : ''}
-                                                     onChange={e => {
-                                                         let cleaned = e.target.value.replace(/\D/g, '');
-                                                         if (cleaned.startsWith('63') && cleaned.length > 10) cleaned = cleaned.slice(2);
-                                                         if (cleaned.startsWith('0') && cleaned.length > 10) cleaned = cleaned.slice(1);
-                                                         cleaned = cleaned.slice(0, 10);
-                                                         setFormData({ ...formData, phone: cleaned });
-                                                     }}
+                                                     value={cleanPhoneInput(formData.phone)}
+                                                     onChange={e => setFormData({ ...formData, phone: cleanPhoneInput(e.target.value) })}
+                                                     maxLength={10}
                                                  />
                                              </div>
                                          </div>
@@ -465,70 +436,22 @@ const MembershipFormModal: React.FC<Props> = ({ isOpen, onClose }) => {
                                     </div>
                                     <div className="flex flex-col gap-4">
                                         {/* Business Structure — full width */}
-                                        <div className="relative" ref={dropdownRef}>
-                                            <label htmlFor="m-businessStructure" className={labelCls}>Business Structure</label>
-                                            <button
+                                        <div>
+                                            <CustomSelect
                                                 id="m-businessStructure"
-                                                type="button"
-                                                className={`${inputCls} flex items-center justify-between cursor-pointer text-left transition-all ${
-                                                    !formData.businessStructure ? 'text-slate-400' : 'text-slate-900 font-semibold'
-                                                }`}
-                                                onClick={() => setIsStructureOpen(!isStructureOpen)}
-                                            >
-                                                <div className="flex items-center gap-2.5">
-                                                    {formData.businessStructure && (
-                                                        <span className={`w-6 h-6 rounded-lg flex items-center justify-center text-xs border ${structureDetails[formData.businessStructure].bgClass}`}>
-                                                            <span className="material-symbols-outlined text-[14px]">{structureDetails[formData.businessStructure].icon}</span>
-                                                        </span>
-                                                    )}
-                                                    <span>{formData.businessStructure || 'Select structure'}</span>
-                                                </div>
-                                                <span className={`material-symbols-outlined transition-transform duration-300 text-slate-400 ${isStructureOpen ? 'rotate-180 text-primary' : ''}`}>
-                                                    keyboard_arrow_down
-                                                </span>
-                                            </button>
-                                            
-                                            <div className={`absolute left-0 right-0 mt-2 bg-white border border-slate-100 rounded-2xl shadow-2xl z-[9999] overflow-hidden transition-all duration-300 origin-top ${
-                                                isStructureOpen 
-                                                    ? 'opacity-100 translate-y-0 scale-100 pointer-events-auto' 
-                                                    : 'opacity-0 -translate-y-2 scale-95 pointer-events-none'
-                                            }`}>
-                                                <ul className="py-1.5 text-sm max-h-60 overflow-y-auto">
-                                                    {['Sole Proprietorship', 'Partnership', 'Corporation', 'Veterinary Teaching Hospital', 'University-affiliated teaching hospital'].map((option) => {
-                                                        const details = structureDetails[option as BusinessStructure];
-                                                        return (
-                                                            <li key={option}>
-                                                                <button
-                                                                    type="button"
-                                                                    className={`w-full px-4 py-3 text-left transition-colors flex items-center justify-between group ${
-                                                                        formData.businessStructure === option 
-                                                                            ? 'bg-primary/5 text-primary font-bold' 
-                                                                            : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
-                                                                    }`}
-                                                                    onClick={() => {
-                                                                        setFormData({ ...formData, businessStructure: option as BusinessStructure });
-                                                                        setIsStructureOpen(false);
-                                                                    }}
-                                                                >
-                                                                    <div className="flex items-center gap-3">
-                                                                        <span className={`w-8 h-8 rounded-xl flex items-center justify-center border transition-colors ${
-                                                                            formData.businessStructure === option 
-                                                                                ? details.bgClass 
-                                                                                : 'bg-slate-50 text-slate-400 border-slate-100 group-hover:bg-white'
-                                                                        }`}>
-                                                                            <span className="material-symbols-outlined text-[18px]">{details.icon}</span>
-                                                                        </span>
-                                                                        <span>{option}</span>
-                                                                    </div>
-                                                                    {formData.businessStructure === option && (
-                                                                        <span className="material-symbols-outlined text-primary text-base font-bold">check</span>
-                                                                    )}
-                                                                </button>
-                                                            </li>
-                                                        );
-                                                    })}
-                                                </ul>
-                                            </div>
+                                                label="Business Structure"
+                                                value={formData.businessStructure}
+                                                onChange={val => setFormData({ ...formData, businessStructure: val as BusinessStructure })}
+                                                placeholder="Select structure"
+                                                required
+                                                options={[
+                                                    { value: "Sole Proprietorship", label: "Sole Proprietorship", icon: "person" },
+                                                    { value: "Partnership", label: "Partnership", icon: "handshake" },
+                                                    { value: "Corporation", label: "Corporation", icon: "corporate_fare" },
+                                                    { value: "Veterinary Teaching Hospital", label: "Veterinary Teaching Hospital", icon: "local_hospital" },
+                                                    { value: "University-affiliated teaching hospital", label: "University-affiliated teaching hospital", icon: "school" }
+                                                ]}
+                                            />
                                         </div>
                                         {/* Representative Name & Representative Phone */}
                                         <div className="grid grid-cols-2 gap-4">
@@ -550,14 +473,9 @@ const MembershipFormModal: React.FC<Props> = ({ isOpen, onClose }) => {
                                                         required 
                                                         placeholder="9XX XXX XXXX" 
                                                         className={inputCls + ' pl-12'}
-                                                        value={formData.representativePhone ? (formData.representativePhone.startsWith('+63') ? formData.representativePhone.slice(3) : formData.representativePhone.startsWith('63') && formData.representativePhone.length === 12 ? formData.representativePhone.slice(2) : formData.representativePhone.startsWith('0') && formData.representativePhone.length === 11 ? formData.representativePhone.slice(1) : formData.representativePhone) : ''}
-                                                        onChange={e => {
-                                                            let cleaned = e.target.value.replace(/\D/g, '');
-                                                            if (cleaned.startsWith('63') && cleaned.length > 10) cleaned = cleaned.slice(2);
-                                                            if (cleaned.startsWith('0') && cleaned.length > 10) cleaned = cleaned.slice(1);
-                                                            cleaned = cleaned.slice(0, 10);
-                                                            setFormData({ ...formData, representativePhone: cleaned });
-                                                        }}
+                                                        value={cleanPhoneInput(formData.representativePhone)}
+                                                        onChange={e => setFormData({ ...formData, representativePhone: cleanPhoneInput(e.target.value) })}
+                                                        maxLength={10}
                                                     />
                                                 </div>
                                             </div>

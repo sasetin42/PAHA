@@ -104,6 +104,13 @@ const MemberLogin: React.FC = () => {
                 setError('Too many failed attempts. Please try again later.');
             } else if (code === 'auth/invalid-email') {
                 setError('Please enter a valid email address.');
+            } else if (code === 'permission-denied') {
+                console.warn('Member login permission issue - session may still be valid');
+                if (nextUrl && nextUrl.startsWith('/')) {
+                    navigate(nextUrl);
+                } else {
+                    navigate('/members');
+                }
             } else {
                 setError('Login failed. Please check your credentials.');
             }

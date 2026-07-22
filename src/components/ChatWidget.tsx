@@ -36,6 +36,8 @@ const ChatWidget: React.FC = () => {
     if (!user?.uid) return;
     const unsub = onSnapshot(doc(db, 'users', user.uid), (snap) => {
       setActiveThreadId(snap.data()?.activeChatThreadId || null);
+    }, (err) => {
+      console.error('[ChatWidget] User doc error:', err);
     });
     return () => unsub();
   }, [user?.uid]);
@@ -46,6 +48,8 @@ const ChatWidget: React.FC = () => {
     if (!activeThreadId) { setHasUnread(false); return; }
     const unsub = onSnapshot(doc(db, 'chats', activeThreadId), (snap) => {
       setHasUnread(!!snap.data()?.unreadByMember);
+    }, (err) => {
+      console.error('[ChatWidget] Chat doc error:', err);
     });
     return () => unsub();
   }, [activeThreadId]);
@@ -69,6 +73,8 @@ const ChatWidget: React.FC = () => {
         timestamp: d.data().createdAt?.toDate() || new Date()
       }));
       setMessages(msgs);
+    }, (err) => {
+      console.error('[ChatWidget] Messages error:', err);
     });
     return () => unsub();
   }, [activeThreadId]);
@@ -227,12 +233,16 @@ const ChatWidget: React.FC = () => {
           {/* Input */}
           <div className="p-3 border-t border-slate-100 dark:border-white/5 bg-white dark:bg-[#0F172A] rounded-b-2xl">
             <div className="flex items-center gap-2">
+              <label htmlFor="chat-message-input" className="sr-only">Type your message</label>
               <input
+                id="chat-message-input"
+                name="chatMessageInput"
                 type="text"
                 value={input}
                 onChange={e => setInput(e.target.value)}
                 onKeyPress={handleKeyPress}
                 placeholder="Type your message..."
+                aria-label="Type your message"
                 className="flex-1 px-3 py-2.5 text-sm bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-xl outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all"
                 disabled={isSending}
               />

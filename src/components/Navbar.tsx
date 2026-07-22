@@ -82,7 +82,7 @@ const Navbar: React.FC = () => {
                         <img
                             src={headerLogoUrl || logoUrl || pahaLogoLight}
                             alt="PAHA Logo"
-                            className="h-[48px] md:h-[68px] w-auto object-contain transition-all py-0.5"
+                            className="h-14 md:h-18 lg:h-20 w-auto max-h-full object-contain transition-all py-0.5"
                         />
                     </Link>
 
@@ -201,7 +201,7 @@ const Navbar: React.FC = () => {
                         >
                             <div className="mb-10 flex items-center justify-between">
                                 <Link to="/" onClick={() => setIsMobileMenuOpen(false)}>
-                                    <img src={headerLogoUrl || logoUrl || pahaLogoLight} alt="Logo" className="h-12 w-auto object-contain" />
+                                    <img src={headerLogoUrl || logoUrl || pahaLogoLight} alt="Logo" className="h-16 w-auto object-contain" />
                                 </Link>
                             </div>
 

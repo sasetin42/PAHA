@@ -190,6 +190,7 @@ const Committees: React.FC = () => {
                     <div className="relative w-full md:max-w-xs shrink-0">
                         <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-lg">search</span>
                         <input
+                            id="cm-search"
                             type="text"
                             placeholder="Filter committees..."
                             value={searchQuery}

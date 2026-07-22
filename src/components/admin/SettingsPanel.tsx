@@ -763,7 +763,7 @@ const SettingsPanel: React.FC = () => {
                                         <label className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 rounded-[10px] font-bold cursor-pointer transition-colors text-[10px] text-slate-700 dark:text-slate-200 uppercase tracking-wider">
                                             <span className="material-symbols-outlined text-xs">upload</span>
                                             {uploadingLogo ? 'Uploading...' : 'Upload Image'}
-                                            <input type="file" accept="image/*" onChange={handleLogoUpload} className="hidden" />
+                                            <input id="sp-logoFile" type="file" accept="image/*" onChange={handleLogoUpload} className="hidden" />
                                         </label>
                                     </div>
                                 </div>
@@ -793,7 +793,7 @@ const SettingsPanel: React.FC = () => {
                                         <label className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 rounded-[10px] font-bold cursor-pointer transition-colors text-[10px] text-slate-700 dark:text-slate-200 uppercase tracking-wider">
                                             <span className="material-symbols-outlined text-xs">upload</span>
                                             {uploadingHeaderLogo ? 'Uploading...' : 'Upload Image'}
-                                            <input type="file" accept="image/*" onChange={handleHeaderLogoUpload} className="hidden" />
+                                            <input id="sp-headerLogoFile" type="file" accept="image/*" onChange={handleHeaderLogoUpload} className="hidden" />
                                         </label>
                                     </div>
                                 </div>
@@ -823,7 +823,7 @@ const SettingsPanel: React.FC = () => {
                                         <label className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 rounded-[10px] font-bold cursor-pointer transition-colors text-[10px] text-slate-700 dark:text-slate-200 uppercase tracking-wider">
                                             <span className="material-symbols-outlined text-xs">upload</span>
                                             {uploadingFooterLogo ? 'Uploading...' : 'Upload Image'}
-                                            <input type="file" accept="image/*" onChange={handleFooterLogoUpload} className="hidden" />
+                                            <input id="sp-footerLogoFile" type="file" accept="image/*" onChange={handleFooterLogoUpload} className="hidden" />
                                         </label>
                                     </div>
                                 </div>
@@ -853,7 +853,7 @@ const SettingsPanel: React.FC = () => {
                                         <label className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 rounded-[10px] font-bold cursor-pointer transition-colors text-[10px] text-slate-700 dark:text-slate-200 uppercase tracking-wider">
                                             <span className="material-symbols-outlined text-xs">upload</span>
                                             {uploadingSidebarExpanded ? 'Uploading...' : 'Upload Image'}
-                                            <input type="file" accept="image/*" onChange={handleSidebarExpandedLogoUpload} className="hidden" />
+                                            <input id="sp-sidebarExpandedFile" type="file" accept="image/*" onChange={handleSidebarExpandedLogoUpload} className="hidden" />
                                         </label>
                                     </div>
                                 </div>
@@ -883,7 +883,7 @@ const SettingsPanel: React.FC = () => {
                                         <label className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 rounded-[10px] font-bold cursor-pointer transition-colors text-[10px] text-slate-700 dark:text-slate-200 uppercase tracking-wider">
                                             <span className="material-symbols-outlined text-xs">upload</span>
                                             {uploadingSidebarCollapsed ? 'Uploading...' : 'Upload Image'}
-                                            <input type="file" accept="image/*" onChange={handleSidebarCollapsedLogoUpload} className="hidden" />
+                                            <input id="sp-sidebarCollapsedFile" type="file" accept="image/*" onChange={handleSidebarCollapsedLogoUpload} className="hidden" />
                                         </label>
                                     </div>
                                 </div>
@@ -914,7 +914,7 @@ const SettingsPanel: React.FC = () => {
                                             <label className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-white/5 rounded-[10px] text-slate-700 dark:text-white font-bold cursor-pointer text-[10px] uppercase tracking-wider transition-all">
                                                 <span className="material-symbols-outlined text-xs">upload</span>
                                                 {uploadingLoadingLogo ? 'Uploading...' : 'Upload Image'}
-                                                <input type="file" accept="image/*" onChange={handleLoadingLogoUpload} className="hidden" />
+                                                <input id="sp-loadingLogoFile" type="file" accept="image/*" onChange={handleLoadingLogoUpload} className="hidden" />
                                             </label>
                                         </div>
                                     </div>
@@ -946,7 +946,7 @@ const SettingsPanel: React.FC = () => {
                                             <label className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-white/5 rounded-[10px] text-slate-700 dark:text-white font-bold cursor-pointer text-[10px] uppercase tracking-wider transition-all">
                                                 <span className="material-symbols-outlined text-xs">upload</span>
                                                 {uploadingFavicon ? 'Uploading...' : 'Upload Icon'}
-                                                <input type="file" accept="image/*" onChange={handleFaviconUpload} className="hidden" />
+                                                <input id="sp-faviconFile" type="file" accept="image/*" onChange={handleFaviconUpload} className="hidden" />
                                             </label>
                                         </div>
                                     </div>
@@ -1361,6 +1361,7 @@ const SettingsPanel: React.FC = () => {
                                                 className="size-8 rounded-lg cursor-pointer border-0 bg-transparent"
                                             />
                                             <input
+                                                id="sp-cardSolidColorText"
                                                 type="text"
                                                 value={cardSolidColor}
                                                 onChange={e => setCardSolidColor(e.target.value)}

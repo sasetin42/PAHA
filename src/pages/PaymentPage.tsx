@@ -2,13 +2,15 @@ import React, { useEffect, useRef, useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { useAppearance } from '../hooks/useAppearance';
 import { createPaycoolsPayment } from '../services/paycoolsService';
 import { db, storage } from '../config/firebase';
 import { doc, setDoc, getDoc, serverTimestamp, collection, getDocs, query, where, orderBy, limit, onSnapshot, updateDoc } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { notifyAdmin } from '../utils/notify';
-import { CalendarPicker } from '../components/CalendarPicker';
+import { cleanPhoneInput } from '../utils/phone';
+import { CustomDatePicker } from '../components/CustomDatePicker';
+import CustomSelect from '../components/CustomSelect';
+import LoadingScreen from '../components/LoadingScreen';
 
 type Step = 1 | 2;
 type PayOption = 'Pay Now' | 'Manual Payment';
@@ -46,14 +48,8 @@ const formatPHMobile = (num: string): string => {
     return cleaned;
 };
 
-const sexDetails: Record<string, { icon: string; bgClass: string }> = {
-    'Male': { icon: 'male', bgClass: 'bg-blue-50 text-blue-500 border-blue-100' },
-    'Female': { icon: 'female', bgClass: 'bg-rose-50 text-rose-500 border-rose-100' }
-};
-
 const PaymentPage: React.FC = () => {
     const { user, profile, loading: authLoading } = useAuth();
-    const { loadingLogoUrl, logoUrl } = useAppearance();
     const navigate = useNavigate();
     const [searchParams] = useSearchParams();
 
@@ -80,6 +76,7 @@ const PaymentPage: React.FC = () => {
     // Step 1 — Personal Info
     const [emailConfirm, setEmailConfirm] = useState('');
     const [prcLicense, setPrcLicense] = useState('');
+    const [facilityName, setFacilityName] = useState('');
     const [fullName, setFullName] = useState('');
     const [birthdate, setBirthdate] = useState('');
     const [sex, setSex] = useState('');
@@ -87,22 +84,6 @@ const PaymentPage: React.FC = () => {
     const [photo, setPhoto] = useState<File | null>(null);
     const [photoPreview, setPhotoPreview] = useState('');
     const photoRef = useRef<HTMLInputElement>(null);
-    
-    const [isSexOpen, setIsSexOpen] = useState(false);
-    const sexDropdownRef = useRef<HTMLDivElement>(null);
-
-    useEffect(() => {
-        const handleClickOutside = (event: MouseEvent) => {
-            if (sexDropdownRef.current && !sexDropdownRef.current.contains(event.target as Node)) {
-                setIsSexOpen(false);
-            }
-        };
-        document.addEventListener('mousedown', handleClickOutside);
-        return () => {
-            document.removeEventListener('mousedown', handleClickOutside);
-        };
-    }, []);
-
 
     // Step 2 — Payment
     const [payOption, setPayOption] = useState<PayOption>('Pay Now');
@@ -175,6 +156,8 @@ const PaymentPage: React.FC = () => {
                 setLiveAccreditationProcessingFee(feeEnabled ? (data.processingFee !== undefined ? data.processingFee : 2500) : 0);
                 setLiveAccreditationValidityYears(data.validityYears || 3);
             }
+        }, (err) => {
+            console.error('[PaymentPage] Accreditation settings error:', err);
         });
 
         // Load card design settings
@@ -182,6 +165,8 @@ const PaymentPage: React.FC = () => {
             if (snap.exists()) {
                 setCardDesign(snap.data());
             }
+        }, (err) => {
+            console.error('[PaymentPage] Card design error:', err);
         });
 
         return () => {
@@ -251,22 +236,11 @@ const PaymentPage: React.FC = () => {
     useEffect(() => {
         if (!profile) return;
         setPrcLicense(profile.prcLicense || profile.prcLicenseNo || '');
+        setFacilityName(profile.clinicName || profile.facilityName || profile.hospitalName || (profile as any).facility || '');
         setBirthdate(profile.birthdate || '');
         setSex(profile.sex || '');
         setFullName(profile.ownerName || profile.fullName || profile.displayName || '');
-        const digits = (profile.phone || profile.mobile || '').replace(/\D/g, '');
-        let loadedMobile = digits;
-        // Handle E.164 format (+63xxxxxxxxx) or similar
-        if (loadedMobile.startsWith('63') && loadedMobile.length >= 11) {
-            loadedMobile = '0' + loadedMobile.slice(2);
-        } else if (loadedMobile.length === 10) {
-            // 10-digit number without leading 0 (old incorrect format)
-            loadedMobile = '0' + loadedMobile;
-        }
-        // Ensure max 11 digits
-        if (loadedMobile.length > 11) {
-            loadedMobile = loadedMobile.slice(-11);
-        }
+        const loadedMobile = cleanPhoneInput(profile.phone || profile.mobile || '');
         setMobile(loadedMobile);
         if (profile.photoUrl) {
             setPhotoPreview(profile.photoUrl);
@@ -383,14 +357,15 @@ const PaymentPage: React.FC = () => {
     };
 
     const validateStep1 = () => {
-        if (!prcLicense) { setError('PRC License number is required.'); return false; }
-        if (!fullName.trim()) { setError('Representative name is required.'); return false; }
+        const effectivePrc = prcLicense || profile?.prcLicense || profile?.prcLicenseNo || '';
+        const effectiveName = (fullName || profile?.ownerName || profile?.fullName || profile?.displayName || '').trim();
+        if (!effectivePrc) { setError('PRC License number is required.'); return false; }
+        if (!effectiveName) { setError('Representative name is required.'); return false; }
         if (!birthdate) { setError('Birthdate is required.'); return false; }
         if (!sex) { setError('Sex is required.'); return false; }
-        const cleanedMobile = mobile.replace(/\D/g, '');
+        const cleanedMobile = cleanPhoneInput(mobile);
         const isValid10 = cleanedMobile.length === 10 && cleanedMobile.startsWith('9');
-        const isValid11 = cleanedMobile.length === 11 && cleanedMobile.startsWith('09');
-        if (!isValid10 && !isValid11) { setError('Please enter a valid Philippine mobile number starting with 09 (or 9) of 10 or 11 digits.'); return false; }
+        if (!isValid10) { setError('Please enter a valid 10-digit Philippine mobile number starting with 9.'); return false; }
         if (!photo && !photoPreview) { setError('Profile photo is required.'); return false; }
         if (!emailConfirm) { setError('Confirm email address is required.'); return false; }
         if (emailConfirm.trim().toLowerCase() !== (user?.email || '').trim().toLowerCase()) { setError('Email addresses do not match.'); return false; }
@@ -551,11 +526,10 @@ const PaymentPage: React.FC = () => {
             return;
         }
         if (payOption === 'Pay Now') {
-            const digits = mobile.replace(/\D/g, '');
+            const digits = cleanPhoneInput(mobile);
             const isValid10 = digits.length === 10 && digits.startsWith('9');
-            const isValid11 = digits.length === 11 && digits.startsWith('09');
-            if (!isValid10 && !isValid11) {
-                setError('Please enter a valid Philippine mobile number.');
+            if (!isValid10) {
+                setError('Please enter a valid 10-digit Philippine mobile number starting with 9.');
                 setProcessing(false);
                 window.scrollTo({ top: 0, behavior: 'smooth' });
                 return;
@@ -606,8 +580,7 @@ const PaymentPage: React.FC = () => {
 
                 const mobileFormatted = (() => {
                     const digits = mobile.replace(/\D/g, '');
-                    const local = digits.replace(/^(63|0)/, '').slice(-10);
-                    return '63' + local;
+                    return digits.replace(/^(63|0)/, '').slice(-10);
                 })();
 
                 const result = await createPaycoolsPayment({
@@ -710,7 +683,7 @@ const PaymentPage: React.FC = () => {
                         mobile: (() => {
                             const digits = mobile.replace(/\D/g, '');
                             const local = digits.replace(/^(63|0)/, '').slice(-10);
-                            return '63' + local;
+                            return '0' + local;
                         })(),
                     },
                 });
@@ -731,37 +704,10 @@ const PaymentPage: React.FC = () => {
 
 
     if (checking || authLoading) {
-        return (
-            <div className="min-h-screen flex flex-col items-center justify-center bg-white dark:bg-white p-4 transition-colors duration-300">
-                <div className="flex flex-col items-center max-w-lg w-full text-center space-y-6">
-                    {/* Logo Section without background box and with modern breathing animation */}
-                    <div className="relative flex items-center justify-center">
-                        <img 
-                            src={loadingLogoUrl || logoUrl || "/paha-logo.png"} 
-                            alt="PAHA Logo" 
-                            loading="eager"
-                            fetchPriority="high"
-                            className="h-40 md:h-48 w-auto object-contain animate-logo-float" 
-                        />
-                    </div>
-
-                    {/* Progress Indicator */}
-                    <div className="flex flex-col items-center space-y-4">
-                        <div className="flex gap-2.5 justify-center items-center h-6">
-                            <span className="w-3 h-3 bg-primary rounded-full animate-modern-dot" style={{ animationDelay: '0ms' }}></span>
-                            <span className="w-3 h-3 bg-primary rounded-full animate-modern-dot" style={{ animationDelay: '200ms' }}></span>
-                            <span className="w-3 h-3 bg-primary rounded-full animate-modern-dot" style={{ animationDelay: '400ms' }}></span>
-                        </div>
-                        <p className="text-[10px] sm:text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-[0.2em] sm:tracking-[0.25em] whitespace-nowrap overflow-hidden text-ellipsis select-none">
-                            PAHA - PHILIPPINES ANIMAL HOSPITAL ASSOCIATION
-                        </p>
-                    </div>
-                </div>
-            </div>
-        );
+        return <LoadingScreen message="PAHA • PREPARING SECURE PAYMENT PORTAL" />;
     }
 
-    const inputCls = 'w-full px-4 py-3 text-sm rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all placeholder:text-slate-400';
+    const inputCls = 'w-full h-11 px-4 text-sm rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all placeholder:text-slate-400';
     const labelCls = 'block text-[10px] font-black uppercase tracking-[0.15em] text-slate-400 dark:text-white/40 mb-2';
 
     const STEPS = [
@@ -940,26 +886,61 @@ const PaymentPage: React.FC = () => {
                                 </div>
 
                                 {/* Fee summary */}
-                                <div className="bg-white dark:bg-[#0F172A] rounded-2xl border border-slate-200 dark:border-white/5 p-5 shadow-sm">
-                                    <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400 dark:text-white/30 mb-4">Fee Summary</p>
-                                    <div className="space-y-2.5">
-                                        <div className="flex justify-between items-center">
-                                            <div className="flex flex-col">
-                                                <span className="text-sm text-slate-600 dark:text-slate-300">Membership Fee</span>
-                                                <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">{isRenewal ? 'Renewal / Recurring' : 'First-time Payment'}</span>
-                                            </div>
-                                            <span className="text-sm font-bold text-slate-900 dark:text-white">₱{liveUserMembershipFee.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                <div className="bg-white dark:bg-[#0F172A] rounded-2xl border border-slate-200 dark:border-white/5 p-5 shadow-sm space-y-4">
+                                    <div className="flex items-center justify-between">
+                                        <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400 dark:text-white/30">Fee Summary</p>
+                                        <div className="size-6 rounded-lg bg-blue-50 dark:bg-blue-500/10 border border-blue-200/50 dark:border-blue-500/20 text-blue-500 flex items-center justify-center shadow-sm">
+                                            <span className="material-symbols-outlined text-xs">receipt_long</span>
                                         </div>
+                                    </div>
+
+                                    <div className="space-y-2.5">
+                                        {/* Membership Fee Item */}
+                                        <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-50/80 dark:bg-white/[0.02] border border-slate-100 dark:border-white/5">
+                                            <div className="flex items-center gap-2.5">
+                                                <div className="size-8 rounded-lg bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 flex items-center justify-center shrink-0 shadow-sm">
+                                                    <span className="material-symbols-outlined text-base">card_membership</span>
+                                                </div>
+                                                <div className="flex flex-col">
+                                                    <span className="text-xs font-bold text-slate-800 dark:text-white">Membership Fee</span>
+                                                    <span className="text-[9px] font-extrabold text-blue-600 dark:text-blue-400 uppercase tracking-wider">
+                                                        {isRenewal ? 'Renewal / Recurring' : 'First-time Payment'}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                            <span className="text-xs font-extrabold text-slate-900 dark:text-white font-mono">
+                                                ₱{liveUserMembershipFee.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                            </span>
+                                        </div>
+
+                                        {/* Processing Fee Item */}
                                         {paymentType === 'membership' && (
-                                            <div className="flex justify-between items-center">
-                                                <span className="text-sm text-slate-500 dark:text-slate-400">Processing Fee</span>
-                                                <span className="text-sm font-semibold text-slate-700 dark:text-white">₱{liveAnnualMembershipProcessingFee.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                            <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-50/80 dark:bg-white/[0.02] border border-slate-100 dark:border-white/5">
+                                                <div className="flex items-center gap-2.5">
+                                                    <div className="size-8 rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 flex items-center justify-center shrink-0 shadow-sm">
+                                                        <span className="material-symbols-outlined text-base">bolt</span>
+                                                    </div>
+                                                    <span className="text-xs font-bold text-slate-700 dark:text-slate-200">Processing Fee</span>
+                                                </div>
+                                                <span className="text-xs font-semibold text-slate-700 dark:text-slate-300 font-mono">
+                                                    ₱{liveAnnualMembershipProcessingFee.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                </span>
                                             </div>
                                         )}
 
-                                        <div className="border-t border-slate-100 dark:border-white/5 pt-2.5 flex justify-between items-center">
-                                            <span className="text-sm font-black text-slate-700 dark:text-white uppercase tracking-wider">Total</span>
-                                            <span className="text-xl font-black text-primary">₱{total.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                        {/* Total Row */}
+                                        <div className="pt-1">
+                                            <div className="p-3 rounded-xl bg-gradient-to-r from-primary/10 via-primary/5 to-transparent border border-primary/20 flex justify-between items-center shadow-sm">
+                                                <div className="flex items-center gap-2.5">
+                                                    <div className="size-8 rounded-lg bg-primary text-white flex items-center justify-center shrink-0 shadow-md shadow-primary/30">
+                                                        <span className="material-symbols-outlined text-base">payments</span>
+                                                    </div>
+                                                    <span className="text-xs font-black text-slate-900 dark:text-white uppercase tracking-wider">TOTAL</span>
+                                                </div>
+                                                <span className="text-lg font-black text-primary font-mono tracking-tight">
+                                                    ₱{total.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                </span>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
@@ -1010,27 +991,69 @@ const PaymentPage: React.FC = () => {
                                 </div>
 
                                 {/* Accreditation Fee Summary */}
-                                <div className="bg-white dark:bg-[#0F172A] rounded-2xl border border-slate-200 dark:border-white/5 p-5 shadow-sm mt-4">
-                                    <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400 dark:text-white/30 mb-4">Statement of Account</p>
+                                <div className="bg-white dark:bg-[#0F172A] rounded-2xl border border-slate-200 dark:border-white/5 p-5 shadow-sm mt-4 space-y-4">
+                                    <div className="flex items-center justify-between">
+                                        <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400 dark:text-white/30">Statement of Account</p>
+                                        <div className="size-6 rounded-lg bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200/50 dark:border-emerald-500/20 text-emerald-500 flex items-center justify-center shadow-sm">
+                                            <span className="material-symbols-outlined text-xs">receipt_long</span>
+                                        </div>
+                                    </div>
+
                                     <div className="space-y-2.5">
-                                        <div className="flex justify-between items-center">
-                                            <span className="text-sm text-slate-600 dark:text-slate-300">Accreditation Fee</span>
-                                            <span className="text-sm font-bold text-slate-900 dark:text-white">₱{liveAccreditationFee.toLocaleString()}.00</span>
+                                        {/* Accreditation Fee */}
+                                        <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-50/80 dark:bg-white/[0.02] border border-slate-100 dark:border-white/5">
+                                            <div className="flex items-center gap-2.5">
+                                                <div className="size-8 rounded-lg bg-teal-500/10 text-teal-600 dark:text-teal-400 border border-teal-500/20 flex items-center justify-center shrink-0 shadow-sm">
+                                                    <span className="material-symbols-outlined text-base">verified_user</span>
+                                                </div>
+                                                <span className="text-xs font-bold text-slate-800 dark:text-white">Accreditation Fee</span>
+                                            </div>
+                                            <span className="text-xs font-bold text-slate-900 dark:text-white font-mono">
+                                                ₱{liveAccreditationFee.toLocaleString()}.00
+                                            </span>
                                         </div>
-                                        <div className="flex justify-between items-center">
-                                            <span className="text-sm text-slate-500 dark:text-slate-400">Processing Fee</span>
-                                            <span className="text-sm font-semibold text-slate-700 dark:text-white">₱{liveAccreditationProcessingFee.toLocaleString()}.00</span>
+
+                                        {/* Processing Fee */}
+                                        <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-50/80 dark:bg-white/[0.02] border border-slate-100 dark:border-white/5">
+                                            <div className="flex items-center gap-2.5">
+                                                <div className="size-8 rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 flex items-center justify-center shrink-0 shadow-sm">
+                                                    <span className="material-symbols-outlined text-base">bolt</span>
+                                                </div>
+                                                <span className="text-xs font-bold text-slate-700 dark:text-slate-200">Processing Fee</span>
+                                            </div>
+                                            <span className="text-xs font-semibold text-slate-700 dark:text-slate-300 font-mono">
+                                                ₱{liveAccreditationProcessingFee.toLocaleString()}.00
+                                            </span>
                                         </div>
+
+                                        {/* Optional Membership Add-on */}
                                         {selectedMembershipType !== 'None' && (
-                                            <div className="flex justify-between items-center">
-                                                <span className="text-sm text-slate-500 dark:text-slate-400">{selectedMembershipType} Membership</span>
-                                                <span className="text-sm font-semibold text-emerald-600 dark:text-emerald-400">+₱{(liveMembershipFees[selectedMembershipType] || 0).toLocaleString()}.00</span>
+                                            <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-50/80 dark:bg-white/[0.02] border border-slate-100 dark:border-white/5">
+                                                <div className="flex items-center gap-2.5">
+                                                    <div className="size-8 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 flex items-center justify-center shrink-0 shadow-sm">
+                                                        <span className="material-symbols-outlined text-base">card_membership</span>
+                                                    </div>
+                                                    <span className="text-xs font-bold text-slate-700 dark:text-slate-200">{selectedMembershipType} Membership</span>
+                                                </div>
+                                                <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 font-mono">
+                                                    +₱{(liveMembershipFees[selectedMembershipType] || 0).toLocaleString()}.00
+                                                </span>
                                             </div>
                                         )}
 
-                                        <div className="border-t border-slate-100 dark:border-white/5 pt-2.5 flex justify-between items-center">
-                                            <span className="text-sm font-black text-slate-700 dark:text-white uppercase tracking-wider">Total Due</span>
-                                            <span className="text-xl font-black text-emerald-600 dark:text-emerald-400">₱{total.toLocaleString()}.00</span>
+                                        {/* Total Due Row */}
+                                        <div className="pt-1">
+                                            <div className="p-3 rounded-xl bg-gradient-to-r from-emerald-500/10 via-teal-500/5 to-transparent border border-emerald-500/20 flex justify-between items-center shadow-sm">
+                                                <div className="flex items-center gap-2.5">
+                                                    <div className="size-8 rounded-lg bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-md shadow-emerald-500/30">
+                                                        <span className="material-symbols-outlined text-base">payments</span>
+                                                    </div>
+                                                    <span className="text-xs font-black text-slate-900 dark:text-white uppercase tracking-wider">TOTAL DUE</span>
+                                                </div>
+                                                <span className="text-lg font-black text-emerald-600 dark:text-emerald-400 font-mono tracking-tight">
+                                                    ₱{total.toLocaleString()}.00
+                                                </span>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
@@ -1109,12 +1132,7 @@ const PaymentPage: React.FC = () => {
 
                                 {/* Personal Details & Profile Photo */}
                                 <div className="bg-white dark:bg-[#0F172A] rounded-2xl border border-slate-200 dark:border-white/5 p-6 shadow-sm">
-                                    <div className="flex items-center gap-2 mb-5">
-                                        <div className="w-8 h-8 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-500">
-                                            <span className="material-symbols-outlined text-base">person</span>
-                                        </div>
-                                        <p className="text-xs font-black uppercase tracking-[0.2em] text-slate-700 dark:text-slate-200">Personal Details</p>
-                                    </div>
+                                    <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400 dark:text-white/30 mb-4">Personal Details</p>
                                     
                                     <div className="flex flex-col md:flex-row gap-6">
                                         {/* Profile Photo upload block */}
@@ -1122,18 +1140,18 @@ const PaymentPage: React.FC = () => {
                                             <label htmlFor="profilePhoto" className={labelCls + " block mb-1"}>Profile Photo <span className="text-red-500">*</span></label>
                                             <p className="text-[10px] text-slate-400 dark:text-white/30 mb-3 leading-normal">Front-facing, plain background. Used on your membership card.</p>
                                             <div
-                                                className="border-2 border-dashed border-slate-200 dark:border-white/10 rounded-2xl p-3 text-center cursor-pointer hover:border-primary/50 hover:bg-primary/[0.02] transition-all flex flex-col items-center justify-center min-h-[110px] flex-1"
+                                                className="border-2 border-dashed border-slate-200 dark:border-white/10 rounded-2xl p-3 text-center cursor-pointer hover:border-primary hover:bg-primary/[0.03] transition-all flex flex-col items-center justify-center min-h-[110px] flex-1 shadow-sm"
                                                 onClick={() => photoRef.current?.click()}
                                             >
                                                 {photoPreview ? (
                                                     <div className="flex flex-col items-center gap-1.5">
-                                                        <img src={photoPreview} alt="Preview" className="size-16 object-cover rounded-xl shadow-lg" />
+                                                        <img src={photoPreview} alt="Preview" className="size-16 object-cover rounded-xl shadow-lg ring-2 ring-primary/30" />
                                                         <p className="text-[10px] text-primary font-bold">Click to change</p>
                                                     </div>
                                                 ) : (
                                                     <>
-                                                        <div className="size-8 rounded-xl bg-slate-100 dark:bg-white/5 flex items-center justify-center mb-1.5">
-                                                            <span className="material-symbols-outlined text-slate-400 text-lg">cloud_upload</span>
+                                                        <div className="size-9 rounded-xl bg-primary/10 text-primary border border-primary/20 flex items-center justify-center mb-1.5 shadow-sm">
+                                                            <span className="material-symbols-outlined text-xl">cloud_upload</span>
                                                         </div>
                                                         <p className="text-xs font-semibold text-slate-700 dark:text-white">
                                                             <span className="text-primary">Click to upload</span>
@@ -1147,82 +1165,36 @@ const PaymentPage: React.FC = () => {
 
                                         {/* Form Details */}
                                         <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                            <CalendarPicker
-                                                id="birthdate"
-                                                label="Date of Birth"
-                                                value={birthdate}
-                                                onChange={setBirthdate}
-                                                required
-                                            />
-                                            <div className="relative" ref={sexDropdownRef}>
-                                                <label htmlFor="sex" className={labelCls}>Sex <span className="text-red-500">*</span></label>
-                                                <button
+                                            <div>
+                                                <label htmlFor="birthdate" className={labelCls}>Date of Birth <span className="text-red-500">*</span></label>
+                                                <CustomDatePicker 
+                                                    id="birthdate" 
+                                                    value={birthdate} 
+                                                    onChange={setBirthdate} 
+                                                    className={inputCls} 
+                                                    leftIcon="calendar_month"
+                                                    iconColor="text-blue-500"
+                                                    iconBg="bg-blue-50 dark:bg-blue-500/10 border border-blue-200/50 dark:border-blue-500/20"
+                                                />
+                                            </div>
+                                            <div>
+                                                <CustomSelect
                                                     id="sex"
-                                                    type="button"
-                                                    className={`${inputCls} h-[46px] flex items-center justify-between cursor-pointer text-left transition-all mt-1.5 ${
-                                                        !sex ? 'text-slate-400' : 'text-slate-900 font-semibold dark:text-white'
-                                                    }`}
-                                                    onClick={() => setIsSexOpen(!isSexOpen)}
-                                                >
-                                                    <div className="flex items-center gap-2.5">
-                                                        {sex && (
-                                                            <span className={`w-6 h-6 rounded-lg flex items-center justify-center text-xs border ${sexDetails[sex].bgClass}`}>
-                                                                <span className="material-symbols-outlined text-[14px]">{sexDetails[sex].icon}</span>
-                                                            </span>
-                                                        )}
-                                                        <span>{sex || 'Select'}</span>
-                                                    </div>
-                                                    <span className={`material-symbols-outlined transition-transform duration-300 text-slate-400 ${isSexOpen ? 'rotate-180 text-primary' : ''}`}>
-                                                        keyboard_arrow_down
-                                                    </span>
-                                                </button>
-                                                
-                                                <div className={`absolute left-0 right-0 mt-2 bg-white border border-slate-100 rounded-2xl shadow-2xl z-[9999] overflow-hidden transition-all duration-300 origin-top ${
-                                                    isSexOpen 
-                                                        ? 'opacity-100 translate-y-0 scale-100 pointer-events-auto' 
-                                                        : 'opacity-0 -translate-y-2 scale-95 pointer-events-none'
-                                                }`}>
-                                                    <ul className="py-1.5 text-sm max-h-60 overflow-y-auto">
-                                                        {['Male', 'Female'].map((option) => {
-                                                            const details = sexDetails[option];
-                                                            return (
-                                                                <li key={option}>
-                                                                    <button
-                                                                        type="button"
-                                                                        className={`w-full px-4 py-3 text-left transition-colors flex items-center justify-between group ${
-                                                                            sex === option 
-                                                                                ? 'bg-primary/5 text-primary font-bold' 
-                                                                                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
-                                                                        }`}
-                                                                        onClick={() => {
-                                                                            setSex(option);
-                                                                            setIsSexOpen(false);
-                                                                        }}
-                                                                    >
-                                                                        <div className="flex items-center gap-3">
-                                                                            <span className={`w-8 h-8 rounded-xl flex items-center justify-center border transition-colors ${
-                                                                                sex === option 
-                                                                                    ? details.bgClass 
-                                                                                    : 'bg-slate-50 text-slate-400 border-slate-100 group-hover:bg-white'
-                                                                            }`}>
-                                                                                <span className="material-symbols-outlined text-[18px]">{details.icon}</span>
-                                                                            </span>
-                                                                            <span>{option}</span>
-                                                                        </div>
-                                                                        {sex === option && (
-                                                                            <span className="material-symbols-outlined text-primary text-base font-bold">check</span>
-                                                                        )}
-                                                                    </button>
-                                                                </li>
-                                                            );
-                                                        })}
-                                                    </ul>
-                                                </div>
+                                                    label="Sex"
+                                                    value={sex}
+                                                    onChange={setSex}
+                                                    placeholder="Select"
+                                                    required
+                                                    options={[
+                                                        { value: "Male", label: "Male", icon: "male", iconColor: "text-blue-500", iconBg: "bg-blue-50 dark:bg-blue-500/10 border border-blue-200/50 dark:border-blue-500/20" },
+                                                        { value: "Female", label: "Female", icon: "female", iconColor: "text-pink-500", iconBg: "bg-pink-50 dark:bg-pink-500/10 border border-pink-200/50 dark:border-pink-500/20" }
+                                                    ]}
+                                                />
                                             </div>
                                             <div className="sm:col-span-2">
                                                 <label htmlFor="mobile" className={labelCls}>Personal Mobile No. <span className="text-red-500">*</span></label>
                                                  <div className="flex gap-2 items-stretch mt-1.5">
-                                                     <div className="flex items-center gap-1.5 px-4 bg-slate-50 dark:bg-white/[0.03] border border-slate-200 dark:border-white/10 rounded-xl text-xs font-bold text-slate-800 dark:text-white select-none">
+                                                     <div className="flex items-center gap-1.5 px-3.5 bg-slate-50 dark:bg-white/[0.03] border border-slate-200 dark:border-white/10 rounded-xl text-xs font-bold text-slate-800 dark:text-white select-none shadow-sm">
                                                          <svg viewBox="0 0 30 20" className="w-5 h-3.5 rounded-sm shadow-sm shrink-0 border border-slate-200/20" aria-hidden="true">
                                                              <rect width="30" height="20" fill="#f5f5f5"/>
                                                              <rect width="30" height="10" fill="#0038A8"/>
@@ -1235,88 +1207,94 @@ const PaymentPage: React.FC = () => {
                                                          </svg>
                                                          <span>+63</span>
                                                      </div>
-                                                    <input 
-                                                        id="mobile" 
-                                                        name="mobile" 
-                                                        type="tel" 
-                                                        value={mobile} 
-                                                        onChange={e => {
-                                                            const val = e.target.value.replace(/\D/g, '');
-                                                            if (val.length <= 11) {
-                                                                setMobile(val);
-                                                            }
-                                                        }}
-                                                        maxLength={11}
-                                                        className={inputCls} 
-                                                        placeholder="09773590258" 
-                                                    />
-                                                </div>
+                                                     <div className="relative flex-1">
+                                                         <div className="absolute left-2.5 top-1/2 -translate-y-1/2 flex items-center justify-center size-7 rounded-lg bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200/50 dark:border-emerald-500/20 text-emerald-500 pointer-events-none shadow-sm">
+                                                             <span className="material-symbols-outlined text-base font-medium">smartphone</span>
+                                                         </div>
+                                                         <input 
+                                                             id="mobile" 
+                                                             name="mobile" 
+                                                             type="tel" 
+                                                             value={cleanPhoneInput(mobile)} 
+                                                             onChange={e => {
+                                                                 setMobile(cleanPhoneInput(e.target.value));
+                                                             }}
+                                                             maxLength={10}
+                                                             className={inputCls + ' pl-11'} 
+                                                             placeholder="9773590258" 
+                                                         />
+                                                     </div>
+                                                 </div>
                                             </div>
                                         </div>
                                     </div>
                                 </div>
 
                                 {/* Account & License */}
-                                 <div className="bg-white dark:bg-[#0F172A] rounded-2xl border border-slate-200 dark:border-white/5 p-5 shadow-sm">
-                                     <div className="flex items-center gap-2 mb-5">
-                                         <div className="w-8 h-8 rounded-xl bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-500">
-                                             <span className="material-symbols-outlined text-base">shield</span>
-                                         </div>
-                                         <p className="text-xs font-black uppercase tracking-[0.2em] text-slate-700 dark:text-slate-200">Account & License</p>
-                                     </div>
-                                     <div className="space-y-4">
-                                         <div>
-                                             <label htmlFor="email" className={labelCls}>Email Address</label>
-                                             <div className="relative mt-1.5">
-                                                 <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 select-none pointer-events-none flex items-center">
-                                                     <span className="material-symbols-outlined text-lg">mail</span>
-                                                 </div>
-                                                 <input id="email" name="email" type="email" value={user?.email || ''} readOnly
-                                                     className={`${inputCls} bg-slate-50 dark:bg-white/[0.03] text-slate-400 cursor-not-allowed pl-11 pr-10`} />
-                                                 <span className="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 text-slate-300 text-base">lock</span>
-                                             </div>
-                                         </div>
-                                         <div>
-                                             <label htmlFor="emailConfirm" className={labelCls}>Confirm Email Address <span className="text-red-500">*</span></label>
-                                             <div className="relative mt-1.5">
-                                                 <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 select-none pointer-events-none flex items-center">
-                                                     <span className="material-symbols-outlined text-lg">mail_lock</span>
-                                                 </div>
-                                                 <input id="emailConfirm" name="emailConfirm" type="email" value={emailConfirm} onChange={e => setEmailConfirm(e.target.value)}
-                                                     className={`${inputCls} pl-11`} placeholder="Re-enter your email address" />
-                                             </div>
-                                         </div>
-                                         <div>
-                                             <label htmlFor="prcLicense" className={labelCls}>PRC License No. <span className="text-red-500">*</span></label>
-                                             <div className="relative mt-1.5">
-                                                 <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 select-none pointer-events-none flex items-center">
-                                                     <span className="material-symbols-outlined text-lg">workspace_premium</span>
-                                                 </div>
-                                                 <input id="prcLicense" name="prcLicense" type="text" value={prcLicense} onChange={e => setPrcLicense(e.target.value)}
-                                                     className={`${inputCls} pl-11`} placeholder="e.g. 0012345" />
-                                             </div>
-                                         </div>
-                                     </div>
-                                 </div>
+                                <div className="bg-white dark:bg-[#0F172A] rounded-2xl border border-slate-200 dark:border-white/5 p-5 shadow-sm">
+                                    <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400 dark:text-white/30 mb-4">Account & License</p>
+                                    <div className="space-y-4">
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                            <div>
+                                                <label htmlFor="email" className={labelCls}>Email Address</label>
+                                                <div className="relative">
+                                                    <div className="absolute left-2.5 top-1/2 -translate-y-1/2 flex items-center justify-center size-7 rounded-lg bg-amber-50 dark:bg-amber-500/10 border border-amber-200/50 dark:border-amber-500/20 text-amber-500 pointer-events-none shadow-sm">
+                                                        <span className="material-symbols-outlined text-base font-medium">alternate_email</span>
+                                                    </div>
+                                                    <input id="email" name="email" type="email" value={user?.email || ''} readOnly
+                                                        className={inputCls + ' bg-slate-50 dark:bg-white/[0.03] text-slate-400 cursor-not-allowed pl-11 pr-10'} />
+                                                    <span className="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 text-base">lock</span>
+                                                </div>
+                                            </div>
+                                            <div>
+                                                <label htmlFor="emailConfirm" className={labelCls}>Confirm Email Address <span className="text-red-500">*</span></label>
+                                                <div className="relative">
+                                                    <div className="absolute left-2.5 top-1/2 -translate-y-1/2 flex items-center justify-center size-7 rounded-lg bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-200/50 dark:border-indigo-500/20 text-indigo-500 pointer-events-none shadow-sm">
+                                                        <span className="material-symbols-outlined text-base font-medium">mark_email_read</span>
+                                                    </div>
+                                                    <input id="emailConfirm" name="emailConfirm" type="email" value={emailConfirm} onChange={e => setEmailConfirm(e.target.value)}
+                                                        className={inputCls + ' pl-11'} placeholder="Re-enter your email address" />
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                            <div>
+                                                <label htmlFor="prcLicense" className={labelCls}>PRC License No. <span className="text-red-500">*</span></label>
+                                                <div className="relative">
+                                                    <div className="absolute left-2.5 top-1/2 -translate-y-1/2 flex items-center justify-center size-7 rounded-lg bg-cyan-50 dark:bg-cyan-500/10 border border-cyan-200/50 dark:border-cyan-500/20 text-cyan-500 pointer-events-none shadow-sm">
+                                                        <span className="material-symbols-outlined text-base font-medium">verified</span>
+                                                    </div>
+                                                    <input id="prcLicense" name="prcLicense" type="text" value={prcLicense} onChange={e => setPrcLicense(e.target.value)}
+                                                        className={inputCls + ' pl-11'} placeholder="e.g. 0012345" />
+                                                </div>
+                                            </div>
+                                            <div>
+                                                <label htmlFor="facilityName" className={labelCls}>Facility / Clinic Name</label>
+                                                <div className="relative">
+                                                    <div className="absolute left-2.5 top-1/2 -translate-y-1/2 flex items-center justify-center size-7 rounded-lg bg-teal-50 dark:bg-teal-500/10 border border-teal-200/50 dark:border-teal-500/20 text-teal-500 pointer-events-none shadow-sm">
+                                                        <span className="material-symbols-outlined text-base font-medium">domain</span>
+                                                    </div>
+                                                    <input id="facilityName" name="facilityName" type="text" value={facilityName} onChange={e => setFacilityName(e.target.value)}
+                                                        className={inputCls + ' pl-11'} placeholder="Enter facility or clinic name" />
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
 
                                 {/* Representative Name */}
-                                 <div className="bg-white dark:bg-[#0F172A] rounded-2xl border border-slate-200 dark:border-white/5 p-5 shadow-sm">
-                                     <div className="flex items-center gap-2 mb-5">
-                                         <div className="w-8 h-8 rounded-xl bg-violet-50 border border-violet-100 flex items-center justify-center text-violet-500">
-                                             <span className="material-symbols-outlined text-base">badge</span>
-                                         </div>
-                                         <p className="text-xs font-black uppercase tracking-[0.2em] text-slate-700 dark:text-slate-200">Representative Details</p>
-                                     </div>
-                                     <div>
-                                         <label htmlFor="fullName" className={labelCls}>Representative Name <span className="text-red-500">*</span></label>
-                                         <div className="relative mt-1.5">
-                                             <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 select-none pointer-events-none flex items-center">
-                                                 <span className="material-symbols-outlined text-lg">person_pin</span>
-                                             </div>
-                                             <input id="fullName" name="fullName" type="text" value={fullName} onChange={e => setFullName(e.target.value)} className={`${inputCls} pl-11`} placeholder="Enter full name" />
-                                         </div>
-                                     </div>
-                                 </div>
+                                <div className="bg-white dark:bg-[#0F172A] rounded-2xl border border-slate-200 dark:border-white/5 p-5 shadow-sm">
+                                    <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400 dark:text-white/30 mb-4">Representative Name</p>
+                                    <div>
+                                        <label htmlFor="fullName" className={labelCls}>Representative Name <span className="text-red-500">*</span></label>
+                                        <div className="relative">
+                                            <div className="absolute left-2.5 top-1/2 -translate-y-1/2 flex items-center justify-center size-7 rounded-lg bg-rose-50 dark:bg-rose-500/10 border border-rose-200/50 dark:border-rose-500/20 text-rose-500 pointer-events-none shadow-sm">
+                                                <span className="material-symbols-outlined text-base font-medium">person</span>
+                                            </div>
+                                            <input id="fullName" name="fullName" type="text" value={fullName} onChange={e => setFullName(e.target.value)} className={inputCls + ' pl-11'} placeholder="Enter full name" />
+                                        </div>
+                                    </div>
+                                </div>
 
                                 <div className="flex justify-end pt-2">
                                     <button onClick={next}
@@ -1341,14 +1319,19 @@ const PaymentPage: React.FC = () => {
                                 </div>
 
                                 {/* Mobile fee summary */}
-                                <div className="lg:hidden bg-primary/10 dark:bg-primary/20 border border-primary/20 rounded-2xl p-4">
+                                <div className="lg:hidden bg-gradient-to-r from-primary/10 via-primary/5 to-transparent border border-primary/20 rounded-2xl p-4 shadow-sm">
                                     <div className="flex justify-between items-center">
-                                        <span className="text-sm font-bold text-slate-700 dark:text-white">Total Due</span>
-                                        <span className="text-2xl font-black text-primary">₱{total.toFixed(2)}</span>
+                                        <div className="flex items-center gap-2.5">
+                                            <div className="size-8 rounded-lg bg-primary text-white flex items-center justify-center shrink-0 shadow-md shadow-primary/30">
+                                                <span className="material-symbols-outlined text-base">payments</span>
+                                            </div>
+                                            <div>
+                                                <span className="text-xs font-black text-slate-800 dark:text-white uppercase tracking-wider block">Total Due</span>
+                                                <span className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">₱{baseFee.toFixed(2)} membership fee</span>
+                                            </div>
+                                        </div>
+                                        <span className="text-2xl font-black text-primary font-mono tracking-tight">₱{total.toFixed(2)}</span>
                                     </div>
-                                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                                        ₱{baseFee.toFixed(2)} membership fee
-                                    </p>
                                 </div>
 
                                 {/* Payment Option */}

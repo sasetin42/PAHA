@@ -41,8 +41,11 @@ const admin = __importStar(require("firebase-admin"));
 const crypto = __importStar(require("crypto"));
 const paycoolsApi_1 = require("./paycoolsApi");
 Object.defineProperty(exports, "paycoolsApi", { enumerable: true, get: function () { return paycoolsApi_1.paycoolsApi; } });
-// Global options (no VPC connector — connector paha-vpc-con not provisioned in this project)
-(0, v2_1.setGlobalOptions)({});
+// Route all outbound traffic through the Serverless VPC Access connector to get a Static IP
+(0, v2_1.setGlobalOptions)({
+    vpcConnector: 'paha-vpc-con',
+    vpcConnectorEgressSettings: 'ALL_TRAFFIC'
+});
 if (admin.apps.length === 0) {
     admin.initializeApp();
 }
@@ -153,6 +156,8 @@ async function postJson(url, body) {
 }
 exports.createPaycoolsPayment = (0, https_1.onRequest)({
     cors: true,
+    vpcConnector: 'paha-vpc-con',
+    vpcConnectorEgressSettings: 'ALL_TRAFFIC'
 }, async (req, res) => {
     try {
         const { orderId, amount, channelCode, email, mobile, customerName, callbackUrl, redirectUrl, description } = req.body;
@@ -170,7 +175,7 @@ exports.createPaycoolsPayment = (0, https_1.onRequest)({
         let cleanMobile = String(mobile || '').replace(/\D/g, '');
         const last10 = cleanMobile.slice(-10);
         if (last10.length === 10 && last10.startsWith('9')) {
-            cleanMobile = '63' + last10;
+            cleanMobile = last10;
         }
         else {
             res.status(400).json({ success: false, error: 'A valid Philippine mobile number starting with 09 (or +639) is required.' });
@@ -214,6 +219,8 @@ exports.createPaycoolsPayment = (0, https_1.onRequest)({
 // ─── Create QR Payment ───────────────────────────────────────────────────
 exports.createPaycoolsQR = (0, https_1.onRequest)({
     cors: true,
+    vpcConnector: 'paha-vpc-con',
+    vpcConnectorEgressSettings: 'ALL_TRAFFIC'
 }, async (req, res) => {
     try {
         const { orderId, amount, email, customerName, callbackUrl, description } = req.body;
@@ -282,7 +289,7 @@ exports.paycoolsValidate = (0, https_1.onRequest)({ cors: true }, async (req, re
             }
             const uid = orderSnap.data().uid;
             const paidAt = admin.firestore.FieldValue.serverTimestamp();
-            await db.collection('users').doc(uid).set({ hasPaid: true, paidAt, membershipStatus: 'active', isActive: true, paycoolsTransactionId: transactionId }, { merge: true });
+            await db.collection('users').doc(uid).set({ hasPaid: true, paidAt, membershipStatus: 'approved', isCertifiedMember: true, role: 'PAHA Member', isActive: true, paycoolsTransactionId: transactionId }, { merge: true });
             await db.collection('convention_registrations').doc(mchOrderId).update({
                 status: 'paid', transactionId, paidAt, amountPaid: Number(amount),
             });
@@ -309,6 +316,25 @@ exports.paycoolsValidate = (0, https_1.onRequest)({ cors: true }, async (req, re
             }
             const userSnap = await db.collection('users').doc(uid).get();
             const userData = userSnap.data() || {};
+            await db.collection('member_notifications').add({
+                uid: uid,
+                clinicId: uid,
+                email: userData.email || orderSnap.data().email || null,
+                type: 'membership_approved',
+                title: 'Membership Payment Confirmed 🎉',
+                body: 'Congratulations! Your PAHA membership payment via PayCools has been confirmed. Welcome to PAHA as a Certified Member.',
+                link: 'membership',
+                read: false,
+                createdAt: admin.firestore.FieldValue.serverTimestamp()
+            }).catch((err) => console.error('[paycoolsValidate] Member notification error:', err));
+            await db.collection('admin_notifications').add({
+                type: 'application',
+                title: 'Membership Payment Confirmed (PayCools)',
+                body: `${userData.clinicName || userData.displayName || 'A member'} paid online via PayCools. Membership activated.`,
+                link: 'applications',
+                read: false,
+                createdAt: admin.firestore.FieldValue.serverTimestamp()
+            }).catch((err) => console.error('[paycoolsValidate] Admin notification error:', err));
             await db.collection('members').doc(uid).set({
                 name: userData.clinicName || userData.displayName || '',
                 address: userData.clinicAddress || '',

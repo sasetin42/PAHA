@@ -65,8 +65,10 @@ const SectionBlock: React.FC<{
                         </p>
                         <div className="space-y-1.5">
                             {section.compulsory.map(item => (
-                                <label key={item.id} className={`flex items-start gap-2.5 py-1 ${readOnly ? '' : 'cursor-pointer'}`}>
+                                <label key={item.id} htmlFor={`acc-comp-${item.id}`} className={`flex items-start gap-2.5 py-1 ${readOnly ? '' : 'cursor-pointer'}`}>
                                     <input
+                                        id={`acc-comp-${item.id}`}
+                                        name={`acc-comp-${item.id}`}
                                         type="checkbox"
                                         checked={!!checked[item.id]}
                                         disabled={readOnly}
@@ -85,8 +87,10 @@ const SectionBlock: React.FC<{
                     <div className="space-y-1">
                         {section.scored.map(item => (
                             <div key={item.id}>
-                                <label className={`flex items-start gap-2.5 py-1.5 px-1 rounded-lg hover:bg-slate-50 dark:hover:bg-white/[0.03] ${readOnly ? '' : 'cursor-pointer'}`}>
+                                <label htmlFor={`acc-score-${item.id}`} className={`flex items-start gap-2.5 py-1.5 px-1 rounded-lg hover:bg-slate-50 dark:hover:bg-white/[0.03] ${readOnly ? '' : 'cursor-pointer'}`}>
                                     <input
+                                        id={`acc-score-${item.id}`}
+                                        name={`acc-score-${item.id}`}
                                         type="checkbox"
                                         checked={!!checked[item.id]}
                                         disabled={readOnly}
@@ -143,8 +147,10 @@ const AccreditationChecklist: React.FC<Props> = ({ standard, mode, value, onChan
         <div className="space-y-3">
             {mode === 'self-assessment' && !readOnly && (
                 <div className="flex justify-end mb-4">
-                    <label className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-primary/10 text-primary border border-primary/20 cursor-pointer hover:bg-primary/20 transition-colors">
+                    <label htmlFor="acc-mark-all" className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-primary/10 text-primary border border-primary/20 cursor-pointer hover:bg-primary/20 transition-colors">
                         <input 
+                            id="acc-mark-all"
+                            name="acc-mark-all"
                             type="checkbox" 
                             className="size-4 accent-primary"
                             checked={standard.reduce((acc, s) => {

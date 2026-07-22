@@ -710,6 +710,8 @@ export const AdminProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                 // Initialize if missing
                 setDoc(doc(db, 'settings', 'siteConfig'), defaultSiteConfig);
             }
+        }, (err) => {
+            console.error('[AdminContext] Site config error:', err);
         });
         return () => unsubscribe();
     }, []);
@@ -724,6 +726,8 @@ export const AdminProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             // Note: We used to seed defaults here, but now we strictly use what is in Firestore.
             // If empty, the UI will handle it.
             setPages(pagesData);
+        }, (err) => {
+            console.error('[AdminContext] Pages error:', err);
         });
         return () => unsubscribe();
     }, []);
@@ -823,9 +827,14 @@ export const AdminProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         const updateFields: any = { status };
         if (status === 'approved') {
             updateFields.paymentStatus = 'paid';
+            updateFields.approvedAt = serverTimestamp();
+            if (rejectionReason) {
+                updateFields.adminRemarks = rejectionReason;
+            }
         }
         if (status === 'rejected') {
             updateFields.rejectionReason = rejectionReason || '';
+            updateFields.adminRemarks = rejectionReason || '';
             updateFields.rejectedAt = serverTimestamp();
         }
         await updateDoc(doc(db, 'membership_applications', id), updateFields);
@@ -835,6 +844,14 @@ export const AdminProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                 const appSnap = await getDoc(doc(db, 'membership_applications', id));
                 const appData = appSnap.data() as any;
                 if (appData) {
+                    const applicantUid = appData.uid;
+                    if (applicantUid) {
+                        await updateDoc(doc(db, 'users', applicantUid), {
+                            membershipStatus: 'rejected',
+                            ...(rejectionReason ? { adminRemarks: rejectionReason } : {})
+                        }).catch(() => {});
+                    }
+
                     await addDoc(collection(db, 'member_notifications'), {
                         uid: appData.uid || null,
                         clinicId: appData.uid || null,
@@ -843,7 +860,7 @@ export const AdminProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                         type: 'membership_rejected',
                         title: 'Membership Application Not Approved',
                         body: rejectionReason
-                            ? `Your PAHA membership application was not approved. Reason: ${rejectionReason}`
+                            ? `Your PAHA membership application was not approved. Remarks: ${rejectionReason}`
                             : 'Your PAHA membership application was not approved.',
                         read: false,
                         createdAt: serverTimestamp(),
@@ -904,12 +921,16 @@ export const AdminProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                         });
                     }
 
-                    // Set user profile's hasPaid = true so they are automatically redirected to dashboard
+                    // Set user profile's hasPaid = true and isCertifiedMember = true so they are certified
                     const applicantUid = (appData as any).uid;
                     if (applicantUid) {
                         await updateDoc(doc(db, 'users', applicantUid), {
                             hasPaid: true,
-                            paidAt: new Date().toISOString()
+                            paidAt: new Date().toISOString(),
+                            isCertifiedMember: true,
+                            membershipStatus: 'approved',
+                            role: 'PAHA Member',
+                            ...(rejectionReason ? { adminRemarks: rejectionReason } : {})
                         });
                     }
 
@@ -920,7 +941,9 @@ export const AdminProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                         email: appData.email || null,
                         type: 'membership_approved',
                         title: 'Membership Application Approved 🎉',
-                        body: 'Congratulations! Your PAHA membership application has been approved. Welcome to the association.',
+                        body: rejectionReason
+                            ? `Congratulations! Your PAHA membership application has been approved as a Certified Member. Remarks: ${rejectionReason}`
+                            : 'Congratulations! Your PAHA membership application has been approved. Welcome to PAHA as a Certified Member.',
                         link: 'membership',
                         read: false,
                         createdAt: serverTimestamp(),

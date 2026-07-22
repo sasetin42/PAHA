@@ -37,6 +37,7 @@ const STATUS_COLORS: Record<string, { bg: string; text: string; border: string }
   needs_compliance: { bg: 'bg-red-100', text: 'text-red-700', border: 'border-red-300' },
   approved: { bg: 'bg-emerald-100', text: 'text-emerald-700', border: 'border-emerald-300' },
   for_payment: { bg: 'bg-blue-100', text: 'text-blue-700', border: 'border-blue-300' },
+  payment_submitted: { bg: 'bg-blue-100', text: 'text-blue-700', border: 'border-blue-300' },
   paid: { bg: 'bg-emerald-100', text: 'text-emerald-700', border: 'border-emerald-300' },
   accredited: { bg: 'bg-emerald-100', text: 'text-emerald-700', border: 'border-emerald-300' },
   in_progress: { bg: 'bg-blue-100', text: 'text-blue-700', border: 'border-blue-300' },

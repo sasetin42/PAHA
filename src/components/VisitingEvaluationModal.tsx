@@ -7,7 +7,6 @@ import type { AccreditationApplication, VisitingEvaluationForm } from '../types/
 import { STANDARD_2026 } from '../data/accreditationStandard2026';
 import { computeOverall, sectionTotalPoints, computeGapSummary } from '../utils/evaluationScoring';
 import AccreditationChecklist from './AccreditationChecklist';
-import CalendarPicker from './CalendarPicker';
 
 interface Props {
     isOpen: boolean;
@@ -78,6 +77,7 @@ const VisitingEvaluationModal: React.FC<Props> = ({ isOpen, onClose, app, existi
     const gaps = useMemo(() => computeGapSummary(STANDARD_2026, checked), [checked]);
     // A failed visit is, by definition, one where the checklist ISN'T fully
     // checked — that's not a reason to block saving. This renders the full
+    // list of unchecked/non-compliant items so the inspector doesn't have to
     // retype what the checklist already shows.
     const autoGapsText = useMemo(() => {
         if (gaps.length === 0) return '';
@@ -96,7 +96,10 @@ const VisitingEvaluationModal: React.FC<Props> = ({ isOpen, onClose, app, existi
         ? (computedVerdict === 'passed' ? 'failed' : 'passed')
         : computedVerdict;
     const isOverridden = finalVerdict !== computedVerdict;
-    const canSave = !overrideOpen || overrideRemarks.trim().length > 0;
+    // Save is always available once a date is set — an incomplete checklist
+    // is expected on a FAIL, not a blocker. The only other requirement is the
+    // override justification, since that's a deliberate manual decision.
+    const canSave = !!dateVisited && (!overrideOpen || overrideRemarks.trim().length > 0);
 
     const buildPdfDoc = (version: number, verdict: 'passed' | 'failed', createdAt: Date) => {
         const pdf = new jsPDF({ unit: 'pt', format: 'a4' });
@@ -188,10 +191,6 @@ const VisitingEvaluationModal: React.FC<Props> = ({ isOpen, onClose, app, existi
     // sends the application back to the Site Visit stage (a physical revisit
     // is needed, not just new documents) instead of advancing to Stage 4.
     const handleSaveEvaluation = async () => {
-        if (!dateVisited) {
-            alert('Date Visited is required.');
-            return;
-        }
         if (!canSave || saving) return;
 
         setSaving(true);
@@ -324,8 +323,31 @@ const VisitingEvaluationModal: React.FC<Props> = ({ isOpen, onClose, app, existi
                         <h3 className="text-lg font-bold text-slate-900 dark:text-white">Visiting Evaluation Form <span className="text-slate-400 font-semibold text-sm">· 2026 Standard</span></h3>
                     </div>
                     <div className="flex items-center gap-2">
+                        <button
+                            type="button"
+                            onClick={() => {
+                                const newChecked: Record<string, boolean> = {};
+                                STANDARD_2026.forEach(sec => {
+                                    (sec.compulsory || []).forEach(item => { newChecked[item.id] = true; });
+                                    (sec.scored || []).forEach(item => { newChecked[item.id] = true; });
+                                });
+                                setChecked(newChecked);
+                            }}
+                            className="px-3 py-2 rounded-xl bg-emerald-100 hover:bg-emerald-200 dark:bg-emerald-500/15 dark:hover:bg-emerald-500/25 text-emerald-600 dark:text-emerald-400 text-xs font-black uppercase tracking-wider transition-all"
+                            title="Check all items for testing"
+                        >
+                            Check All
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setChecked({})}
+                            className="px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-white/5 dark:hover:bg-white/10 text-slate-600 dark:text-slate-400 text-xs font-black uppercase tracking-wider transition-all"
+                            title="Uncheck all items"
+                        >
+                            Reset
+                        </button>
                         {existingForm && (
-                            <span className="text-[10px] font-black px-2.5 py-1 rounded-lg bg-blue-100 dark:bg-blue-500/15 text-blue-600 dark:text-blue-300 uppercase tracking-widest">Editing v{String(existingForm.version).padStart(2, '0')}</span>
+                            <span className="text-[10px] font-black px-2.5 py-1.5 rounded-lg bg-blue-100 dark:bg-blue-500/15 text-blue-600 dark:text-blue-300 uppercase tracking-widest">Editing v{String(existingForm.version).padStart(2, '0')}</span>
                         )}
                         <button onClick={onClose} disabled={saving} className="size-10 rounded-full flex items-center justify-center bg-slate-100 dark:bg-white/10 text-slate-600 dark:text-white hover:bg-red-100 hover:text-red-600 transition-all disabled:opacity-40">
                             <span className="material-symbols-outlined text-xl">close</span>
@@ -338,8 +360,10 @@ const VisitingEvaluationModal: React.FC<Props> = ({ isOpen, onClose, app, existi
                     {/* Clinic + Date */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div>
-                            <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">Clinic Name</label>
+                            <label htmlFor="vem-clinicName" className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">Clinic Name</label>
                             <input
+                                id="vem-clinicName"
+                                name="vemClinicName"
                                 type="text"
                                 value={app.clinicName}
                                 readOnly
@@ -347,12 +371,14 @@ const VisitingEvaluationModal: React.FC<Props> = ({ isOpen, onClose, app, existi
                             />
                         </div>
                         <div>
-                            <CalendarPicker
-                                id="ev-dateVisited"
-                                label="Date Visited"
+                            <label htmlFor="vem-dateVisited" className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">Date Visited</label>
+                            <input
+                                id="vem-dateVisited"
+                                name="vemDateVisited"
+                                type="date"
                                 value={dateVisited}
-                                onChange={setDateVisited}
-                                required
+                                onChange={e => setDateVisited(e.target.value)}
+                                className="w-full px-4 py-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10 text-slate-900 dark:text-white text-sm focus:ring-2 focus:ring-primary/30 focus:border-primary outline-none"
                             />
                         </div>
                     </div>
@@ -383,8 +409,10 @@ const VisitingEvaluationModal: React.FC<Props> = ({ isOpen, onClose, app, existi
                                 <p className="text-[10px] text-red-600/70 dark:text-red-400/70 mt-1.5">Recorded automatically from the checklist above — this list is what the member sees.</p>
                             </div>
                             <div>
-                                <label className="block text-[10px] font-bold text-red-600/80 dark:text-red-400/80 uppercase tracking-widest mb-1.5">Additional Remarks (optional)</label>
+                                <label htmlFor="vem-failRemarks" className="block text-[10px] font-bold text-red-600/80 dark:text-red-400/80 uppercase tracking-widest mb-1.5">Additional Remarks (optional)</label>
                                 <textarea
+                                    id="vem-failRemarks"
+                                    name="vemFailRemarks"
                                     value={failRemarks}
                                     onChange={e => setFailRemarks(e.target.value)}
                                     rows={3}
@@ -397,8 +425,8 @@ const VisitingEvaluationModal: React.FC<Props> = ({ isOpen, onClose, app, existi
 
                     {/* Admin override */}
                     <div className="rounded-2xl border border-slate-200 dark:border-white/10 p-4">
-                        <label className="flex items-center gap-2.5 cursor-pointer">
-                            <input type="checkbox" checked={overrideOpen} onChange={() => setOverrideOpen(v => !v)} className="size-4 accent-amber-500" />
+                        <label htmlFor="vem-overrideOpen" className="flex items-center gap-2.5 cursor-pointer">
+                            <input id="vem-overrideOpen" name="vemOverrideOpen" type="checkbox" checked={overrideOpen} onChange={() => setOverrideOpen(v => !v)} className="size-4 accent-amber-500" />
                             <span className="text-sm font-bold text-slate-700 dark:text-slate-200">Admin override — flip the computed verdict</span>
                         </label>
                         {overrideOpen && (
@@ -406,7 +434,10 @@ const VisitingEvaluationModal: React.FC<Props> = ({ isOpen, onClose, app, existi
                                 <p className="text-[11px] text-amber-600 dark:text-amber-400 mb-2 font-semibold">
                                     The computed verdict is {computedVerdict.toUpperCase()}. Saving with an override records the verdict as {computedVerdict === 'passed' ? 'FAILED' : 'PASSED'}. A justification is required.
                                 </p>
+                                <label htmlFor="vem-overrideRemarks" className="sr-only">Override justification</label>
                                 <textarea
+                                    id="vem-overrideRemarks"
+                                    name="vemOverrideRemarks"
                                     value={overrideRemarks}
                                     onChange={e => setOverrideRemarks(e.target.value)}
                                     rows={3}

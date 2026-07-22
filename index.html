@@ -4,23 +4,6 @@
 <head>
   <meta charset="UTF-8" />
   <link rel="icon" type="image/png" href="/paha-logo.png" />
-  <script>
-    (function() {
-      try {
-        var cached = localStorage.getItem('paha_appearance_settings');
-        var logoUrl = '/paha-logo.png';
-        if (cached) {
-          var settings = JSON.parse(cached);
-          logoUrl = settings.loadingLogoUrl || settings.logoUrl || logoUrl;
-        }
-        var link = document.createElement('link');
-        link.rel = 'preload';
-        link.as = 'image';
-        link.href = logoUrl;
-        document.head.appendChild(link);
-      } catch (e) {}
-    })();
-  </script>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>PAHA - Philippine Animal Hospital Association</title>
   <meta name="description" content="Philippine Animal Hospital Association (PAHA) — advancing veterinary excellence through education, accreditation, and community service across the Philippines." />
@@ -44,126 +27,17 @@
        when you set up a GA4 property. The placeholder tag was removed because an
        unconfigured "G-XXXXXXXXXX" id fires a failing request on every page view. -->
 
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous" />
   <link rel="preconnect" href="https://firestore.googleapis.com" crossorigin="anonymous" />
   <link href="https://fonts.googleapis.com/css2?family=Maven+Pro:wght@400;500;600;700;800;900&display=swap"
     rel="stylesheet" />
-  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap"
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap"
     rel="stylesheet" />
-  <style>
-    /* Instant startup loading screen styles */
-    .startup-loader {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      min-height: 100vh;
-      background-color: #FFFFFF;
-      padding: 1rem;
-      transition: background-color 0.3s;
-    }
-    .startup-container {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      width: 100%;
-      max-width: 32rem;
-      text-align: center;
-    }
-    .startup-logo-wrapper {
-      position: relative;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      margin-bottom: 1.5rem;
-    }
-    .startup-logo {
-      height: 11rem;
-      width: auto;
-      object-fit: contain;
-      animation: startupFloat 3s ease-in-out infinite;
-    }
-    @media (min-width: 768px) {
-      .startup-logo {
-        height: 12rem;
-      }
-    }
-    .startup-progress {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 1rem;
-    }
-    .startup-dots {
-      display: flex;
-      gap: 0.625rem;
-      justify-content: center;
-      align-items: center;
-      height: 1.5rem;
-    }
-    .startup-dot {
-      width: 0.75rem;
-      height: 0.75rem;
-      background-color: #1e60a3;
-      border-radius: 9999px;
-      animation: startupDot 1.4s ease-in-out infinite;
-    }
-    .startup-text {
-      font-size: 10px;
-      font-weight: 700;
-      color: #94a3b8;
-      text-transform: uppercase;
-      letter-spacing: 0.2em;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      user-select: none;
-      font-family: 'Maven Pro', sans-serif;
-    }
-    @media (min-width: 640px) {
-      .startup-text {
-        font-size: 11px;
-        letter-spacing: 0.25em;
-      }
-    }
-    @keyframes startupFloat {
-      0%, 100% { transform: translateY(0) scale(1); filter: drop-shadow(0 4px 6px rgba(0, 0, 0, 0.05)); }
-      50% { transform: translateY(-8px) scale(1.03); filter: drop-shadow(0 12px 16px rgba(30, 96, 163, 0.15)); }
-    }
-    @keyframes startupDot {
-      0%, 100% { transform: scale(0.5); opacity: 0.3; filter: brightness(0.9) blur(0.5px); }
-      50% { transform: scale(1.2); opacity: 1; filter: brightness(1.2) drop-shadow(0 0 10px rgba(30, 96, 163, 0.6)); }
-    }
-  </style>
 </head>
 
 <body class="bg-background-light dark:bg-background-dark font-display text-slate-900 selection:bg-primary/30">
-  <div id="root">
-    <div class="startup-loader">
-      <div class="startup-container">
-        <div class="startup-logo-wrapper">
-          <img id="startup-logo-img" src="/paha-logo.png" alt="PAHA Logo" class="startup-logo" />
-        </div>
-        <div class="startup-progress">
-          <div class="startup-dots">
-            <span class="startup-dot" style="animation-delay: 0ms"></span>
-            <span class="startup-dot" style="animation-delay: 200ms"></span>
-            <span class="startup-dot" style="animation-delay: 400ms"></span>
-          </div>
-          <p class="startup-text">PAHA - PHILIPPINES ANIMAL HOSPITAL ASSOCIATION</p>
-        </div>
-      </div>
-    </div>
-  </div>
-  <script>
-    try {
-      var cached = localStorage.getItem('paha_appearance_settings');
-      if (cached) {
-        var settings = JSON.parse(cached);
-        var logoUrl = settings.loadingLogoUrl || settings.logoUrl || '/paha-logo.png';
-        document.getElementById('startup-logo-img').src = logoUrl;
-      }
-    } catch (_) {}
-  </script>
+  <div id="root"></div>
   <script type="module" src="/src/main.tsx"></script>
 </body>
 

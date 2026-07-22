@@ -33,6 +33,7 @@ export type WorkflowStatus =
   | 'needs_compliance'
   | 'approved'
   | 'for_payment'
+  | 'payment_submitted'
   | 'paid'
   | 'accredited'
   | 'rejected'
@@ -57,6 +58,7 @@ export const WORKFLOW_STATUS_LABELS: Record<WorkflowStatus, string> = {
   needs_compliance: 'Needs Compliance',
   approved: 'Approved',
   for_payment: 'For Payment',
+  payment_submitted: 'Payment Submitted',
   paid: 'Paid',
   accredited: 'Accredited',
   rejected: 'Rejected',
@@ -158,6 +160,9 @@ export interface PaymentData {
   amount: number;
   statementOfAccount: string;
   proofOfPaymentUrl?: string;
+  paymentProofUrl?: string;
+  paymentOption?: string;
+  paymentMethod?: string;
   submittedAt?: string;
   confirmedAt?: string;
   rejectedAt?: string;

@@ -70,6 +70,8 @@ const MemberChatbot: React.FC = () => {
           }).catch(() => {});
         }
       });
+    }, (err) => {
+      console.error('[MemberChatbot] Messages error:', err);
     });
 
     return () => unsubscribe();
@@ -83,6 +85,8 @@ const MemberChatbot: React.FC = () => {
     const unsubscribe = onSnapshot(chatRef, (snap) => {
       const data = snap.data();
       setRepresentativeTyping(!!data?.representativeTyping);
+    }, (err) => {
+      console.error('[MemberChatbot] Chat snapshot error:', err);
     });
 
     return () => unsubscribe();
@@ -506,6 +510,7 @@ const MemberChatbot: React.FC = () => {
           <div className="p-3 border-t border-slate-100 dark:border-white/5 bg-white dark:bg-[#0F172A]">
             <div className="flex items-center gap-2">
               <input
+                id="mbot-input"
                 type="text"
                 value={input}
                 onChange={e => setInput(e.target.value)}

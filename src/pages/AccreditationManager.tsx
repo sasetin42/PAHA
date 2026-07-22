@@ -21,8 +21,6 @@ import {
 } from '../types/accreditation';
 import { ASSESSMENT_CATEGORIES } from '../data/assessmentCategories';
 import { getEmbeddableUrl } from '../utils/portalUrl';
-import CalendarPicker from '../components/CalendarPicker';
-
 
 const STATUS_FILTER_OPTIONS: { value: WorkflowStatus | 'all'; label: string }[] = [
   { value: 'all', label: 'All Applications' },
@@ -38,6 +36,15 @@ const STATUS_FILTER_OPTIONS: { value: WorkflowStatus | 'all'; label: string }[] 
   { value: 'paid', label: 'Paid' },
   { value: 'accredited', label: 'Accredited' },
 ];
+
+const getFileIcon = (name: string) => {
+    const ext = name.split('.').pop()?.toLowerCase() || '';
+    if (ext === 'pdf') return { name: 'picture_as_pdf', color: 'text-rose-500' };
+    if (['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp'].includes(ext)) return { name: 'image', color: 'text-blue-500' };
+    if (['mp4', 'mov', 'avi', 'webm', 'mkv'].includes(ext)) return { name: 'movie', color: 'text-amber-500' };
+    if (['zip', 'rar', '7z', 'tar', 'gz'].includes(ext)) return { name: 'folder_zip', color: 'text-purple-500' };
+    return { name: 'description', color: 'text-slate-500' };
+};
 
 const AccreditationManager: React.FC = () => {
   const navigate = useNavigate();
@@ -79,6 +86,9 @@ const AccreditationManager: React.FC = () => {
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const apps = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as AccreditationApplication));
       setApplications(apps);
+      setLoading(false);
+    }, (err) => {
+      console.error('[AccreditationManager] Applications error:', err);
       setLoading(false);
     });
 
@@ -175,7 +185,7 @@ const AccreditationManager: React.FC = () => {
         adminRemarks: review.remarks,
         reviewedAt: new Date().toISOString(),
         resubmitCount: existing?.resubmitCount || 0,
-        lastResubmitAt: existing?.lastResubmitAt || undefined,
+        lastResubmitAt: existing?.lastResubmitAt,
       };
       if (review.status === 'non_complied') hasNonComplied = true;
     });
@@ -398,6 +408,7 @@ const AccreditationManager: React.FC = () => {
       needs_compliance: { bg: 'bg-red-100', text: 'text-red-700' },
       approved: { bg: 'bg-emerald-100', text: 'text-emerald-700' },
       for_payment: { bg: 'bg-blue-100', text: 'text-blue-700' },
+      payment_submitted: { bg: 'bg-purple-100', text: 'text-purple-700' },
       paid: { bg: 'bg-emerald-100', text: 'text-emerald-700' },
       accredited: { bg: 'bg-emerald-100', text: 'text-emerald-700' },
       rejected: { bg: 'bg-red-100', text: 'text-red-700' },
@@ -429,8 +440,15 @@ const AccreditationManager: React.FC = () => {
       <header className="h-24 bg-white/80 dark:bg-[#0F172A]/80 backdrop-blur-xl border-b border-slate-200 dark:border-slate-800 sticky top-0 z-[100] px-4 md:px-10 flex items-center justify-between">
         <div className="max-w-7xl mx-auto w-full flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <button onClick={() => navigate('/admin')} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors">
-              <span className="material-symbols-outlined text-slate-500 hover:text-slate-700 dark:hover:text-slate-300">arrow_back</span>
+            <button
+              id="accreditation-manager-back-btn"
+              type="button"
+              onClick={() => navigate('/admin')}
+              className="px-3.5 py-2.5 rounded-xl bg-[#2563EB] text-white hover:bg-blue-700 shadow-md shadow-blue-500/20 transition-all flex items-center justify-center gap-2 font-extrabold text-xs uppercase tracking-wider shrink-0 z-20 cursor-pointer active:scale-95"
+              title="Back to Admin Dashboard"
+            >
+              <span className="material-symbols-outlined text-base font-bold">arrow_back</span>
+              <span>Back</span>
             </button>
             <div>
               <h1 className="text-xl font-bold uppercase text-slate-900 dark:text-white tracking-tighter">Accreditation Manager</h1>
@@ -567,24 +585,24 @@ const AccreditationManager: React.FC = () => {
                     </h3>
                     <div className="grid grid-cols-2 gap-4">
                       <div>
-                        <label className="text-xs font-bold text-slate-500 uppercase">Representative</label>
+                        <p className="text-xs font-bold text-slate-500 uppercase">Representative</p>
                         <p className="font-semibold text-slate-800 dark:text-white">{selectedApp.loiData?.representativeName}</p>
                       </div>
                       <div>
-                        <label className="text-xs font-bold text-slate-500 uppercase">Title</label>
+                        <p className="text-xs font-bold text-slate-500 uppercase">Title</p>
                         <p className="font-semibold text-slate-800 dark:text-white">{selectedApp.loiData?.representativeTitle}</p>
                       </div>
                       <div>
-                        <label className="text-xs font-bold text-slate-500 uppercase">PRC License</label>
+                        <p className="text-xs font-bold text-slate-500 uppercase">PRC License</p>
                         <p className="font-semibold text-slate-800 dark:text-white">{selectedApp.loiData?.prcLicenseNo}</p>
                       </div>
                       <div>
-                        <label className="text-xs font-bold text-slate-500 uppercase">Contact</label>
+                        <p className="text-xs font-bold text-slate-500 uppercase">Contact</p>
                         <p className="font-semibold text-slate-800 dark:text-white">{selectedApp.loiData?.phone}</p>
                       </div>
                     </div>
                     <div className="mt-4">
-                      <label className="text-xs font-bold text-slate-500 uppercase">Preferred Visit Dates</label>
+                      <p className="text-xs font-bold text-slate-500 uppercase">Preferred Visit Dates</p>
                       <div className="flex gap-2 mt-1">
                         {selectedApp.loiData?.preferredVisitDates.map((date, i) => (
                           <span key={i} className="px-3 py-1 bg-slate-100 dark:bg-slate-700 rounded-lg text-sm font-semibold">
@@ -599,10 +617,12 @@ const AccreditationManager: React.FC = () => {
                       <div className="grid grid-cols-2 gap-4 mb-4">
                         <div>
                           <label htmlFor="ac-visitDate" className="text-xs font-bold text-slate-500 uppercase mb-1 block">Date *</label>
-                          <CalendarPicker
+                          <input
                             id="ac-visitDate"
+                            type="date"
                             value={visitForm.date}
-                            onChange={(val) => setVisitForm(prev => ({ ...prev, date: val }))}
+                            onChange={(e) => setVisitForm(prev => ({ ...prev, date: e.target.value }))}
+                            className="w-full px-4 py-2 border border-slate-200 dark:border-slate-600 rounded-xl bg-white dark:bg-slate-900 focus:ring-2 focus:ring-[#2563EB] outline-none"
                           />
                         </div>
                         <div>
@@ -679,13 +699,13 @@ const AccreditationManager: React.FC = () => {
                       <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-6 border border-blue-200 dark:border-blue-800">
                         <div className="grid grid-cols-2 gap-4">
                           <div>
-                            <label className="text-xs font-bold text-slate-500 uppercase">Date</label>
+                            <p className="text-xs font-bold text-slate-500 uppercase">Date</p>
                             <p className="font-bold text-slate-800 dark:text-white text-lg">
                               {new Date(selectedApp.visitData.scheduledDate).toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
                             </p>
                           </div>
                           <div>
-                            <label className="text-xs font-bold text-slate-500 uppercase">Time</label>
+                            <p className="text-xs font-bold text-slate-500 uppercase">Time</p>
                             <p className="font-bold text-slate-800 dark:text-white text-lg">
                               {(() => {
                                 const t = selectedApp.visitData!.scheduledTime;
@@ -698,17 +718,17 @@ const AccreditationManager: React.FC = () => {
                             </p>
                           </div>
                           <div>
-                            <label className="text-xs font-bold text-slate-500 uppercase">Inspector</label>
+                            <p className="text-xs font-bold text-slate-500 uppercase">Inspector</p>
                             <p className="font-bold text-slate-800 dark:text-white">{selectedApp.visitData.inspectorName}</p>
                           </div>
                           <div>
-                            <label className="text-xs font-bold text-slate-500 uppercase">Status</label>
+                            <p className="text-xs font-bold text-slate-500 uppercase">Status</p>
                             <p className="font-bold text-emerald-600">Confirmed</p>
                           </div>
                         </div>
                         {selectedApp.visitData.notes && (
                           <div className="mt-4 pt-4 border-t border-blue-200 dark:border-blue-800">
-                            <label className="text-xs font-bold text-slate-500 uppercase">Notes</label>
+                            <p className="text-xs font-bold text-slate-500 uppercase">Notes</p>
                             <p className="text-slate-700 dark:text-slate-300 mt-1">{selectedApp.visitData.notes}</p>
                           </div>
                         )}
@@ -751,21 +771,44 @@ const AccreditationManager: React.FC = () => {
                             <h4 className="font-bold text-slate-800 dark:text-white mb-3">{cat.title}</h4>
 
                             {compliance?.uploadedFiles && compliance.uploadedFiles.length > 0 && (
-                              <div className="mb-3">
+                              <div className="mb-4">
                                 <p className="text-xs font-bold text-slate-500 uppercase mb-2">Uploaded Files</p>
-                                <div className="space-y-1">
-                                  {compliance.uploadedFiles.map((file, idx) => (
-                                    <a
-                                      key={idx}
-                                      href={file.url}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="flex items-center gap-2 text-sm text-blue-600 hover:text-blue-800"
-                                    >
-                                      <span className="material-symbols-outlined text-sm">description</span>
-                                      {file.name}
-                                    </a>
-                                  ))}
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                  {compliance.uploadedFiles.map((file, idx) => {
+                                    const iconData = getFileIcon(file.name);
+                                    return (
+                                      <div key={idx} className="bg-white/70 dark:bg-slate-900/40 backdrop-blur-md border border-slate-200/50 dark:border-white/10 hover:border-primary/30 transition-all hover:shadow-md rounded-2xl p-4 flex flex-col justify-between h-[120px] group">
+                                        <div className="flex items-start gap-3 min-w-0">
+                                          <div className={`p-2 rounded-xl shrink-0 ${iconData.color} bg-current/10 flex items-center justify-center`}>
+                                            <span className="material-symbols-outlined text-xl">{iconData.name}</span>
+                                          </div>
+                                          <div className="min-w-0 flex-1">
+                                            <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block truncate">{cat.title}</span>
+                                            <p className="truncate text-xs font-bold text-slate-800 dark:text-slate-200 mt-1" title={file.name}>{file.name}</p>
+                                          </div>
+                                        </div>
+                                        <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100 dark:border-white/5">
+                                          <button
+                                            type="button"
+                                            onClick={() => setPdfViewerUrl(file.url)}
+                                            className="flex items-center gap-1 text-[11px] font-bold text-primary hover:text-blue-700 dark:hover:text-blue-400 transition-colors"
+                                          >
+                                            <span className="material-symbols-outlined text-sm">visibility</span>
+                                            Preview
+                                          </button>
+                                          <a
+                                            href={file.url}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="flex items-center gap-1 text-[11px] font-bold text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-300 transition-colors"
+                                          >
+                                            <span className="material-symbols-outlined text-sm">open_in_new</span>
+                                            Open
+                                          </a>
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
                                 </div>
                               </div>
                             )}
@@ -1016,7 +1059,16 @@ const AccreditationManager: React.FC = () => {
                 </button>
               </div>
             </div>
-            <iframe src={getEmbeddableUrl(pdfViewerUrl)} className="flex-1 w-full" title="PDF Viewer" />
+            {(() => {
+              const isImage = /\.(png|jpe?g|gif|webp|svg)(\?.*)?$/i.test(pdfViewerUrl) || pdfViewerUrl.startsWith('data:image/');
+              return isImage ? (
+                <div className="flex-1 bg-slate-900 flex items-center justify-center p-4 overflow-auto">
+                  <img src={pdfViewerUrl} alt="Document Preview" className="max-w-full max-h-full object-contain" onError={(e) => { (e.currentTarget as HTMLElement).style.display = 'none'; }} />
+                </div>
+              ) : (
+                <iframe src={getEmbeddableUrl(pdfViewerUrl)} className="flex-1 w-full border-0" title="Document Viewer" />
+              );
+            })()}
           </div>
         </div>
       )}

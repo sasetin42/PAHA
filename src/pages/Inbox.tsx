@@ -53,6 +53,8 @@ const Inbox: React.FC = () => {
         } as ChatThread;
       });
       setThreads(threads);
+    }, (err) => {
+      console.error('[Inbox] Threads error:', err);
     });
     return () => unsubscribe();
   }, [user?.uid]);
@@ -82,6 +84,8 @@ const Inbox: React.FC = () => {
           }).catch(() => {});
         }
       });
+    }, (err) => {
+      console.error('[Inbox] Messages error:', err);
     });
     return () => unsubscribe();
   }, [selectedThreadId]);

@@ -443,10 +443,10 @@ const PartnersManager: React.FC = () => {
 
                                 {/* Row 2 — Partnership Tier (Visual Tiles) */}
                                 <div className="space-y-3">
-                                    <label className="flex items-center gap-2 text-[10px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-[0.18em]">
+                                    <p className="flex items-center gap-2 text-[10px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-[0.18em]">
                                         <span className="material-symbols-outlined text-sm">workspace_premium</span>
                                         Partnership Tier <span className="text-red-400">*</span>
-                                    </label>
+                                    </p>
                                     <div className="grid grid-cols-3 gap-3">
                                         {TIERS.map(tier => (
                                             <button

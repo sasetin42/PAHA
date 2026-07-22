@@ -407,6 +407,7 @@ const PublicChatbot: React.FC = () => {
           <div className="p-3 border-t border-slate-100 dark:border-white/5 bg-white dark:bg-[#0F172A]">
             <div className="flex items-center gap-2">
               <input
+                id="pbot-input"
                 type="text"
                 value={input}
                 onChange={e => setInput(e.target.value)}

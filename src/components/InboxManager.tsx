@@ -59,6 +59,8 @@ const InboxManager: React.FC = () => {
         const q = query(collection(db, 'chats'), orderBy('lastMessageAt', 'desc'));
         const unsub = onSnapshot(q, (snap) => {
             setThreads(snap.docs.map(d => ({ id: d.id, ...d.data() } as ChatThread)));
+        }, (err) => {
+            console.error('[InboxManager] Threads error:', err);
         });
         return () => unsub();
     }, []);
@@ -99,6 +101,8 @@ const InboxManager: React.FC = () => {
         const q = query(collection(db, 'chats', activeThreadId, 'messages'), orderBy('createdAt', 'asc'));
         const unsub = onSnapshot(q, (snap) => {
             setMessages(snap.docs.map(d => ({ id: d.id, ...d.data() } as ChatMessage)));
+        }, (err) => {
+            console.error('[InboxManager] Messages error:', err);
         });
         return () => unsub();
     }, [activeThreadId]);
@@ -323,12 +327,16 @@ const InboxManager: React.FC = () => {
                             ))}
                         </div>
                         <div className="p-4 border-t border-slate-100 dark:border-white/5 flex items-center gap-2">
+                            <label htmlFor="inbox-reply-input" className="sr-only">Reply to member</label>
                             <input
+                                id="inbox-reply-input"
+                                name="inboxReplyInput"
                                 type="text"
                                 value={draft}
                                 onChange={e => setDraft(e.target.value)}
                                 onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
                                 placeholder="Reply to member..."
+                                aria-label="Reply to member"
                                 className="flex-1 px-4 py-2.5 rounded-xl bg-slate-100 dark:bg-white/5 text-sm font-medium text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-primary/40"
                             />
                             <button
