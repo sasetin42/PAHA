@@ -2457,7 +2457,7 @@ const AdminDashboard: React.FC = () => {
                             <div className="bg-white dark:bg-slate-800 p-4 rounded-[12px] shadow-sm border border-slate-200 dark:border-white/5">
                                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 items-end">
                                     <div>
-                                        <label htmlFor="ad-accSearch" className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block mb-1">Search Clinics</label>
+                                        <label htmlFor="ad-accSearch" className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block mb-1">Search Clinics Names</label>
                                         <div className="relative">
                                             <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">search</span>
                                             <input
@@ -2553,15 +2553,32 @@ const AdminDashboard: React.FC = () => {
                                             {filtered.length === 0 ? (
                                                 <tr>
                                                     <td colSpan={7} className="p-8 text-center text-slate-500 font-medium">
-                                                        <span className="material-symbols-outlined text-3xl opacity-30 block mb-2">inbox</span>
+                                                                        <span className="material-symbols-outlined text-3xl opacity-30 block mb-2">inbox</span>
                                                         No accreditation submissions found.
                                                     </td>
                                                 </tr>
                                             ) : (
                                                 filtered.map(app => {
                                                     const saData = app.selfAssessmentData;
-                                                    const matchedMember = members.find(m => m.id === app.clinicId);
-                                                    const memberImg = matchedMember?.image || '';
+                                                    const appAny = app as any;
+                                                    const appUserId = appAny.userId || app.clinicId;
+                                                    const appEmail = appAny.email || appAny.loiData?.email;
+                                                    const userDoc = appUserId ? usersMap[appUserId] : null;
+                                                    const matchedMember = members.find(m => m.id === app.clinicId || m.id === appUserId || (m.email && appEmail && m.email.toLowerCase() === appEmail.toLowerCase()));
+                                                    const clinicProfileImg = (app as any).clinicImageUrl || 
+                                                                             (app as any).clinicLogo || 
+                                                                             (app as any).photoUrl || 
+                                                                             (app as any).loiData?.clinicImageUrl || 
+                                                                             (app as any).loiData?.clinicLogo || 
+                                                                             userDoc?.clinicImageUrl || 
+                                                                             userDoc?.clinicLogo || 
+                                                                             userDoc?.photoUrl || 
+                                                                             userDoc?.avatarUrl || 
+                                                                             (matchedMember as any)?.clinicImageUrl || 
+                                                                             (matchedMember as any)?.clinicLogo || 
+                                                                             (matchedMember as any)?.photoUrl || 
+                                                                             matchedMember?.image || 
+                                                                             '';
                                                     const statusColors: Record<string, string> = {
                                                         intent_submitted: 'bg-blue-500/10 text-blue-500',
                                                         intent_resubmitted: 'bg-amber-500/10 text-amber-500',
@@ -2595,9 +2612,20 @@ const AdminDashboard: React.FC = () => {
                                                         <tr key={app.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-900/30 transition-colors">
                                                             <td className="p-4">
                                                                 <div className="flex items-center gap-3">
-                                                                    <div className="size-10 rounded-full border border-slate-200 dark:border-white/5 bg-slate-50 dark:bg-slate-900 overflow-hidden flex-shrink-0 flex items-center justify-center">
-                                                                        {memberImg ? (
-                                                                            <img src={memberImg} alt="Clinic Logo" className="size-full object-cover" />
+                                                                    <div 
+                                                                        className={`size-10 rounded-full border border-slate-200 dark:border-white/10 bg-slate-100 dark:bg-slate-900 overflow-hidden flex-shrink-0 flex items-center justify-center ${clinicProfileImg ? 'cursor-pointer hover:opacity-85 hover:scale-105 transition-all shadow-sm' : ''}`}
+                                                                        onClick={() => {
+                                                                            if (clinicProfileImg) {
+                                                                                setAccredFileViewer({
+                                                                                    url: clinicProfileImg,
+                                                                                    name: `${app.clinicName} - Clinic Profile Image`
+                                                                                });
+                                                                            }
+                                                                        }}
+                                                                        title={clinicProfileImg ? "Click to view clinic profile image" : "No profile image"}
+                                                                    >
+                                                                        {clinicProfileImg ? (
+                                                                            <img src={clinicProfileImg} alt={app.clinicName} className="size-full object-cover" />
                                                                         ) : (
                                                                             <span className="material-symbols-outlined text-lg text-slate-400">pets</span>
                                                                         )}
@@ -2720,8 +2748,8 @@ const AdminDashboard: React.FC = () => {
                                                                                     </div>
                                                                                 </button>
 
-                                                                                {/* Payment Approval Details Option */}
-                                                                                {(app.status === 'payment_submitted' || !!(app as any).paymentData?.proofOfPaymentUrl || !!(app as any).paymentData?.paymentProofUrl) && (
+                                                                                {/* Payment Approval & Payment Details Option */}
+                                                                                {(app.status === 'payment_submitted' || app.status === 'paid' || app.status === 'accredited' || (app.status as string) === 'for_site_visit' || !!(app as any).paymentData || !!(app as any).paymentProofUrl || !!(app as any).proofOfPaymentUrl) && (
                                                                                     <button
                                                                                         type="button"
                                                                                         id={`approve-pay-menu-btn-${app.id}`}
@@ -2736,7 +2764,7 @@ const AdminDashboard: React.FC = () => {
                                                                                         <span className="material-symbols-outlined text-emerald-500 transition-colors text-sm">payments</span>
                                                                                         <div className="flex-1 min-w-0">
                                                                                             <p className="font-black leading-tight">Approval Details</p>
-                                                                                            <p className="text-[10px] text-slate-400 font-medium">Review manual payment proof</p>
+                                                                                            <p className="text-[10px] text-slate-400 font-medium">Review payment proof & gateway details</p>
                                                                                         </div>
                                                                                     </button>
                                                                                 )}
@@ -3383,25 +3411,40 @@ const AdminDashboard: React.FC = () => {
                             {activeTab === 'accreditation' && (
                                 <>
                                     <FileViewerModal file={accredFileViewer} onClose={() => setAccredFileViewer(null)} />
-                                    {quickPayApp && (
+                                    {quickPayApp && (() => {
+                                        const isManualPayment = (quickPayApp as any).paymentData?.method === 'manual' || 
+                                                                !!(quickPayApp as any).paymentData?.proofOfPaymentUrl || 
+                                                                !!(quickPayApp as any).paymentData?.paymentProofUrl || 
+                                                                !!(quickPayApp as any).paymentProofUrl;
+                                        const refNo = (quickPayApp as any).paymentData?.referenceNo || (quickPayApp as any).paymentData?.merchantOrderId || (quickPayApp as any).loiData?.loiRef || quickPayApp.id;
+                                        const isAccredited = quickPayApp.status === 'accredited' || quickPayApp.status === 'paid';
+
+                                        return (
                                         <div className="fixed inset-0 z-[990] flex items-center justify-center p-4 bg-slate-900/75 backdrop-blur-md animate-fade-in overflow-y-auto">
                                             <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-white/10 shadow-2xl max-w-2xl w-full my-8 overflow-hidden animate-scale-up flex flex-col max-h-[90vh]">
                                                 
                                                 {/* Modal Header */}
                                                 <div className="flex items-center justify-between px-6 py-5 border-b border-slate-100 dark:border-white/10 bg-slate-50/80 dark:bg-slate-800/80 sticky top-0 z-20">
                                                     <div className="flex items-center gap-3">
-                                                        <div className="size-11 rounded-2xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center font-bold shrink-0">
-                                                            <span className="material-symbols-outlined text-2xl">receipt_long</span>
+                                                        <div className={`size-11 rounded-2xl ${isManualPayment ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400' : 'bg-blue-500/10 text-blue-600 dark:text-blue-400'} flex items-center justify-center font-bold shrink-0 shadow-sm`}>
+                                                            <span className="material-symbols-outlined text-2xl">{isManualPayment ? 'account_balance' : 'bolt'}</span>
                                                         </div>
                                                         <div>
-                                                            <div className="flex items-center gap-2">
-                                                                <h3 className="text-base font-extrabold text-slate-900 dark:text-white uppercase tracking-tight">Manual Payment Approval Details</h3>
+                                                            <div className="flex flex-wrap items-center gap-2">
+                                                                <h3 className="text-base font-extrabold text-slate-900 dark:text-white uppercase tracking-tight">Payment & Approval Record</h3>
                                                                 <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
-                                                                    quickPayApp.status === 'accredited' || quickPayApp.status === 'paid'
-                                                                        ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300'
-                                                                        : 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300'
+                                                                    isAccredited
+                                                                        ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300 border border-emerald-300/30'
+                                                                        : 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300 border border-amber-300/30'
                                                                 }`}>
                                                                     {quickPayApp.status === 'accredited' ? 'Accredited' : quickPayApp.status === 'paid' ? 'Paid' : 'Pending Approval'}
+                                                                </span>
+                                                                <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider ${
+                                                                    isManualPayment 
+                                                                        ? 'bg-purple-100 text-purple-700 dark:bg-purple-500/20 dark:text-purple-300'
+                                                                        : 'bg-indigo-100 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-300'
+                                                                }`}>
+                                                                    {isManualPayment ? 'Manual Bank Transfer' : 'PayCools Gateway'}
                                                                 </span>
                                                             </div>
                                                             <p className="text-xs text-slate-500 font-mono mt-0.5">{quickPayApp.clinicName}</p>
@@ -3484,19 +3527,31 @@ const AdminDashboard: React.FC = () => {
                                                                     <span className="material-symbols-outlined text-sm">payments</span>
                                                                     Payment Submission Details
                                                                 </p>
-                                                                <div className="space-y-1 text-slate-700 dark:text-slate-300">
+                                                                <div className="space-y-1.5 text-slate-700 dark:text-slate-300">
                                                                     <div>
                                                                         <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">Payment Method</span>
-                                                                        <span className="font-bold text-slate-900 dark:text-white">{(quickPayApp as any).paymentData?.method || 'Manual Bank Deposit / GCash'}</span>
+                                                                        <span className="font-bold text-slate-900 dark:text-white flex items-center gap-1">
+                                                                            <span className="material-symbols-outlined text-xs text-blue-500">{isManualPayment ? 'account_balance' : 'credit_card'}</span>
+                                                                            {(quickPayApp as any).paymentData?.method || (isManualPayment ? 'Manual Bank Deposit / GCash' : 'PayCools Online Gateway')}
+                                                                        </span>
                                                                     </div>
-                                                                    <div className="pt-1">
-                                                                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">Transaction Ref #</span>
-                                                                        <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">{(quickPayApp as any).paymentData?.referenceNo || 'Direct Upload Slip'}</span>
+                                                                    <div>
+                                                                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">Transaction Ref / Order ID</span>
+                                                                        <span className="font-mono font-semibold text-slate-800 dark:text-slate-200 truncate block">{refNo}</span>
                                                                     </div>
+                                                                    {(quickPayApp as any).accreditationNumber && (
+                                                                        <div>
+                                                                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">Accreditation Cert #</span>
+                                                                            <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">{(quickPayApp as any).accreditationNumber}</span>
+                                                                        </div>
+                                                                    )}
                                                                 </div>
                                                             </div>
-                                                            <div className="pt-1 border-t border-blue-200/55 dark:border-blue-500/20 text-[11px] text-slate-500">
-                                                                Submitted: {(quickPayApp as any).paymentData?.triggeredAt ? new Date((quickPayApp as any).paymentData.triggeredAt).toLocaleString() : 'Recent'}
+                                                            <div className="pt-1.5 border-t border-blue-200/55 dark:border-blue-500/20 text-[11px] text-slate-500 flex justify-between items-center">
+                                                                <span>Submitted:</span>
+                                                                <span className="font-semibold text-slate-700 dark:text-slate-300">
+                                                                    {(quickPayApp as any).paymentData?.triggeredAt ? new Date((quickPayApp as any).paymentData.triggeredAt).toLocaleString() : 'Recent'}
+                                                                </span>
                                                             </div>
                                                         </div>
                                                     </div>
@@ -3543,6 +3598,16 @@ const AdminDashboard: React.FC = () => {
                                                                         >
                                                                             <span className="material-symbols-outlined text-lg">open_in_new</span> Open File in New Tab
                                                                         </a>
+                                                                    </div>
+                                                                </div>
+                                                            ) : !isManualPayment ? (
+                                                                <div className="p-4 bg-indigo-50/60 dark:bg-indigo-950/20 border border-indigo-200 dark:border-indigo-500/30 rounded-2xl text-xs text-indigo-900 dark:text-indigo-200 flex items-center gap-3">
+                                                                    <div className="size-10 rounded-xl bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0 font-bold">
+                                                                        <span className="material-symbols-outlined text-xl">verified_user</span>
+                                                                    </div>
+                                                                    <div>
+                                                                        <p className="font-extrabold uppercase tracking-wider text-[11px] text-indigo-700 dark:text-indigo-300">PayCools Online Gateway Verification</p>
+                                                                        <p className="text-[11px] text-slate-600 dark:text-slate-400 mt-0.5">Automated online transaction processed via PayCools API. Order Reference: <span className="font-mono font-bold text-slate-800 dark:text-slate-200">{refNo}</span></p>
                                                                     </div>
                                                                 </div>
                                                             ) : (
@@ -3684,19 +3749,41 @@ const AdminDashboard: React.FC = () => {
                                                             </div>
                                                         </>
                                                     ) : (
-                                                        <button
-                                                            type="button"
-                                                            id="close-quick-pay-modal-bottom"
-                                                            onClick={() => setQuickPayApp(null)}
-                                                            className="w-full py-3 rounded-xl font-bold text-xs uppercase tracking-wider bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-300 dark:hover:bg-slate-700 transition-colors cursor-pointer"
-                                                        >
-                                                            Close Details
-                                                        </button>
+                                                        <div className="w-full flex items-center justify-between gap-3">
+                                                            <div className="flex items-center gap-2 text-xs font-extrabold text-emerald-600 dark:text-emerald-400">
+                                                                <span className="material-symbols-outlined text-base">verified</span>
+                                                                Accreditation Payment Validated
+                                                            </div>
+                                                            <div className="flex items-center gap-2">
+                                                                <button
+                                                                    type="button"
+                                                                    id="inspect-app-from-pay-modal"
+                                                                    onClick={() => {
+                                                                        const targetApp = quickPayApp;
+                                                                        setQuickPayApp(null);
+                                                                        setInspectingApp(targetApp);
+                                                                    }}
+                                                                    className="py-2.5 px-4 rounded-xl font-bold text-xs uppercase tracking-wider bg-blue-50 text-blue-600 hover:bg-blue-100 dark:bg-blue-500/10 dark:text-blue-400 transition-colors cursor-pointer flex items-center gap-1.5"
+                                                                >
+                                                                    <span className="material-symbols-outlined text-sm">visibility</span>
+                                                                    Inspect App
+                                                                </button>
+                                                                <button
+                                                                    type="button"
+                                                                    id="close-quick-pay-modal-bottom"
+                                                                    onClick={() => setQuickPayApp(null)}
+                                                                    className="py-2.5 px-5 rounded-xl font-bold text-xs uppercase tracking-wider bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-300 dark:hover:bg-slate-700 transition-colors cursor-pointer"
+                                                                >
+                                                                    Close Details
+                                                                </button>
+                                                            </div>
+                                                        </div>
                                                     )}
                                                 </div>
                                             </div>
                                         </div>
-                                    )}
+                                    );
+                                })()}
                                 </>
                             )}
                         </div>

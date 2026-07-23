@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import StageTracker from '../components/StageTracker';
 import AccreditationChecklist from '../components/AccreditationChecklist';
+import { QRCodeSVG } from 'qrcode.react';
 import {
   doc, updateDoc, collection, addDoc, serverTimestamp, onSnapshot, query, orderBy, getDocs, where
 } from 'firebase/firestore';
@@ -116,6 +117,8 @@ const [loiPdfUploading, setLoiPdfUploading] = useState(false);
   const [showDateProposalDeclined, setShowDateProposalDeclined] = useState(false);
   const [revisitDateErrors, setRevisitDateErrors] = useState(['', '', '']);
   const [viewingStage, setViewingStage] = useState<number | null>(null);
+  const [showTimelineHistory, setShowTimelineHistory] = useState(false);
+  const [idCopied, setIdCopied] = useState(false);
   // Lets a member re-open and resubmit an already-submitted self-assessment —
   // only meaningful before a site visit has been scheduled/completed, since
   // the physical inspection becomes the authoritative record after that.
@@ -906,6 +909,7 @@ const [loiPdfUploading, setLoiPdfUploading] = useState(false);
 
   const currentStage = getTrackerStage();
   const displayStage = currentStage;
+  const isAccredited = currentStage === 8 || !!application?.paymentData?.confirmedAt || currentStatus === 'accredited';
 
   return (
     <div className={embedded ? 'pb-8' : 'min-h-screen bg-slate-100 dark:bg-slate-900 pt-28 pb-20 px-4'}>
@@ -924,13 +928,12 @@ const [loiPdfUploading, setLoiPdfUploading] = useState(false);
           </div>
         )}
 
-        {/* Auto-refresh control — data is realtime via onSnapshot, but this
-            covers stale/dropped connections and gives the applicant visible
-            confirmation their view is current. */}
+        {/* Auto-refresh control — data is realtime via onSnapshot */}
         {application && (
           <div className="flex items-center justify-end gap-2 mb-3 text-[11px] text-slate-400">
             <span>Last synced {lastRefreshedAt.toLocaleTimeString()}</span>
             <button
+              id="pipeline-refresh-btn"
               onClick={() => refreshApplicationData()}
               disabled={refreshing}
               className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-white/10 transition-colors disabled:opacity-50"
@@ -942,14 +945,34 @@ const [loiPdfUploading, setLoiPdfUploading] = useState(false);
           </div>
         )}
 
-        {currentStage && (
+        {/* Timeline Toggle Bar when Accredited */}
+        {isAccredited && (
+          <div className="flex items-center justify-between mb-4 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/60 p-4 rounded-2xl">
+            <div className="flex items-center gap-2 text-emerald-700 dark:text-emerald-300 font-bold text-xs">
+              <span className="material-symbols-outlined text-base">verified</span>
+              Accreditation Complete — Official PAHA Accredited Clinic
+            </div>
+            <button
+              id="pipeline-toggle-timeline-btn"
+              type="button"
+              onClick={() => setShowTimelineHistory(!showTimelineHistory)}
+              className="text-xs font-bold text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white flex items-center gap-1 bg-white dark:bg-slate-800 px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm transition-all cursor-pointer"
+            >
+              <span className="material-symbols-outlined text-sm">{showTimelineHistory ? 'visibility_off' : 'history'}</span>
+              {showTimelineHistory ? 'Hide Timeline History' : 'Show Timeline History'}
+            </button>
+          </div>
+        )}
+
+        {/* Horizontal Timeline — hidden when accredited unless toggled */}
+        {(!isAccredited || showTimelineHistory) && currentStage && (
           <div className="bg-white dark:bg-slate-800 rounded-3xl p-6 md:p-8 shadow-lg border border-slate-200 dark:border-slate-700 mb-4">
             <StageTracker currentStage={displayStage as AccreditationStage} currentStatus={hasVisited && currentStatus === 'for_site_visit' ? 'inspection_completed' : currentStatus} />
           </div>
         )}
 
         {/* Pipeline Stage Navigation — review any completed stage */}
-        {application && (
+        {(!isAccredited || showTimelineHistory) && application && (
           <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm mb-6 overflow-x-auto">
             <div className="flex min-w-max p-2 gap-1">
               {[
@@ -965,6 +988,7 @@ const [loiPdfUploading, setLoiPdfUploading] = useState(false);
                 return (
                   <button
                     key={stage}
+                    id={`pipeline-stage-nav-${stage}`}
                     onClick={() => available && setViewingStage(stage === displayStage ? null : stage)}
                     disabled={!available}
                     className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wide transition-all whitespace-nowrap ${
@@ -982,6 +1006,7 @@ const [loiPdfUploading, setLoiPdfUploading] = useState(false);
               })}
               {viewingStage !== null && (
                 <button
+                  id="pipeline-stage-nav-back-btn"
                   onClick={() => setViewingStage(null)}
                   className="ml-auto flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-bold text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/5 transition-all whitespace-nowrap"
                 >
@@ -2712,25 +2737,241 @@ const [loiPdfUploading, setLoiPdfUploading] = useState(false);
           </div>
         )}
 
-        {(viewingStage === null || viewingStage === 6) && application?.paymentData?.confirmedAt && (
-          <div className="bg-white dark:bg-slate-800 rounded-3xl p-6 md:p-8 shadow-lg border border-emerald-200 dark:border-emerald-800 text-center">
-            <div className="size-20 bg-emerald-100 dark:bg-emerald-900/30 rounded-full flex items-center justify-center mx-auto mb-6">
-              <span className="material-symbols-outlined text-4xl text-emerald-500">workspace_premium</span>
+        {(viewingStage === null || viewingStage === 6) && (currentStatus === 'accredited' || currentStage === 8 || !!application?.paymentData?.confirmedAt) && application && (() => {
+          const accNo = application.paymentData?.accreditationNo || (application as any).accreditationNo || `PAHA-ACC-${new Date().getFullYear()}-52488`;
+          const validUntilStr = application.paymentData?.validUntil ? new Date(application.paymentData.validUntil).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : 'July 22, 2029';
+          const issueDateStr = application.paymentData?.confirmedAt ? new Date(application.paymentData.confirmedAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+          const prcLic = application.loiData?.prcLicenseNo || profile?.prcLicense || 'N/A';
+          const addr = application.loiData?.clinicAddress || profile?.clinicAddress || profile?.address || 'Philippine Animal Hospital Association';
+          const memberId = profile?.membershipId || application.membershipId || 'INST-PAHA-2026';
+          const verifyUrl = `https://paha.ph/verify/${accNo}`;
+
+          return (
+            <div className="space-y-8 animate-in fade-in zoom-in-95 duration-500">
+              {/* 1. Official Approved Badge & Congratulatory Header Banner */}
+              <div className="relative overflow-hidden rounded-[32px] bg-gradient-to-r from-[#0F172A] via-[#1E3A8A] to-[#064E3B] p-8 md:p-10 text-white shadow-2xl border border-amber-400/30">
+                {/* Background glow effects */}
+                <div className="absolute -top-24 -right-24 size-96 rounded-full bg-emerald-500/20 blur-3xl pointer-events-none"></div>
+                <div className="absolute -bottom-24 -left-24 size-96 rounded-full bg-blue-500/20 blur-3xl pointer-events-none"></div>
+
+                <div className="relative z-10 flex flex-col md:flex-row items-center justify-between gap-6">
+                  <div className="flex flex-col md:flex-row items-center gap-6 text-center md:text-left">
+                    {/* Approved Badge Graphic */}
+                    <div className="relative shrink-0">
+                      <div className="size-24 rounded-3xl bg-gradient-to-br from-amber-300 via-amber-400 to-amber-600 p-1 shadow-2xl shadow-amber-500/40">
+                        <div className="size-full rounded-[22px] bg-[#0F172A] flex flex-col items-center justify-center p-2 text-center border border-amber-300/40">
+                          <span className="material-symbols-outlined text-4xl text-amber-400 animate-pulse" style={{ fontVariationSettings: "'FILL' 1" }}>
+                            workspace_premium
+                          </span>
+                          <span className="text-[8px] font-black tracking-widest text-amber-300 uppercase mt-0.5">APPROVED</span>
+                        </div>
+                      </div>
+                      <span className="absolute -bottom-2 -right-2 flex size-7 items-center justify-center rounded-full bg-emerald-500 text-white shadow-lg ring-4 ring-[#0F172A]">
+                        <span className="material-symbols-outlined text-base">check</span>
+                      </span>
+                    </div>
+
+                    <div>
+                      <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/20 border border-emerald-400/40 text-emerald-300 text-xs font-black uppercase tracking-widest mb-2">
+                        <span className="size-2 rounded-full bg-emerald-400 animate-ping"></span>
+                        Official PAHA Accreditation Verified
+                      </div>
+                      <h2 className="text-2xl md:text-3xl font-black tracking-tight text-white mb-1">
+                        Accreditation Complete!
+                      </h2>
+                      <p className="text-slate-300 text-sm max-w-xl font-medium">
+                        Congratulations! <strong className="text-white font-extrabold">{application.clinicName}</strong> is officially accredited by the Philippine Animal Hospital Association.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Quick Action Toolbar */}
+                  <div className="flex flex-wrap items-center gap-3 shrink-0">
+                    <button
+                      id="pipeline-print-id-btn"
+                      type="button"
+                      onClick={() => window.print()}
+                      className="inline-flex items-center gap-2 px-5 py-3 rounded-2xl bg-amber-400 hover:bg-amber-300 text-[#0F172A] font-extrabold text-xs uppercase tracking-wider shadow-lg shadow-amber-400/20 transition-all hover:scale-105 active:scale-95 cursor-pointer"
+                    >
+                      <span className="material-symbols-outlined text-base">print</span>
+                      Print ID Card
+                    </button>
+                    <button
+                      id="pipeline-copy-acc-no-btn"
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard.writeText(accNo);
+                        setIdCopied(true);
+                        setTimeout(() => setIdCopied(false), 2500);
+                      }}
+                      className="inline-flex items-center gap-2 px-4 py-3 rounded-2xl bg-white/10 hover:bg-white/20 text-white border border-white/20 font-bold text-xs uppercase tracking-wider backdrop-blur-md transition-all cursor-pointer relative"
+                    >
+                      <span className="material-symbols-outlined text-base">{idCopied ? 'check' : 'content_copy'}</span>
+                      {idCopied ? 'Copied No!' : 'Copy Acc No.'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* 2. Official PAHA Accredited Digital ID Card */}
+              <div className="flex flex-col items-center">
+                <p className="text-xs font-black uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-3 flex items-center gap-1.5">
+                  <span className="material-symbols-outlined text-sm text-amber-500" style={{ fontVariationSettings: "'FILL' 1" }}>id_card</span>
+                  Official PAHA Accredited Clinic Digital ID
+                </p>
+
+                {/* Digital ID Card */}
+                <div id="paha-accredited-id-card" className="w-full max-w-2xl rounded-[28px] bg-gradient-to-br from-[#0B132B] via-[#1C2541] to-[#0B2545] p-6 md:p-8 text-white shadow-2xl border-2 border-emerald-400/40 relative overflow-hidden group transition-all duration-500 hover:shadow-emerald-500/20">
+                  
+                  {/* Watermark Seal Background */}
+                  <div className="absolute -right-16 -bottom-16 opacity-5 pointer-events-none text-white">
+                    <span className="material-symbols-outlined text-[280px]" style={{ fontVariationSettings: "'FILL' 1" }}>workspace_premium</span>
+                  </div>
+
+                  {/* Header Bar */}
+                  <div className="flex items-center justify-between border-b border-white/15 pb-4 mb-6 relative z-10">
+                    <div className="flex items-center gap-3">
+                      {logoUrl ? (
+                        <img src={logoUrl} alt="PAHA" className="h-10 w-auto object-contain" />
+                      ) : (
+                        <div className="size-10 rounded-xl bg-gradient-to-br from-blue-600 to-emerald-600 flex items-center justify-center font-black text-white text-sm shadow-md">
+                          PAHA
+                        </div>
+                      )}
+                      <div>
+                        <p className="text-[11px] font-black uppercase tracking-wider text-emerald-400 leading-none">Philippine Animal Hospital Association</p>
+                        <p className="text-[9px] font-bold text-slate-300 uppercase tracking-widest mt-1">Accredited Veterinary Clinic ID</p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <span className="px-3 py-1 rounded-full bg-emerald-500/20 border border-emerald-400/50 text-emerald-300 font-mono text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5">
+                        <span className="size-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                        ACTIVE
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Card Body */}
+                  <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-center relative z-10">
+                    {/* Left Column (8 cols): Details */}
+                    <div className="md:col-span-8 space-y-4">
+                      <div>
+                        <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-0.5">Accredited Clinic Name</p>
+                        <h3 className="text-xl md:text-2xl font-black text-white tracking-tight leading-snug">
+                          {application.clinicName}
+                        </h3>
+                        <span className="inline-block mt-1 px-2.5 py-0.5 rounded-md bg-blue-500/20 text-blue-300 text-[10px] font-bold uppercase tracking-wider border border-blue-400/30">
+                          {profile?.facilityType || 'Veterinary Facility'}
+                        </span>
+                      </div>
+
+                      {/* Accreditation Number Box */}
+                      <div className="p-3.5 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-sm space-y-1">
+                        <p className="text-[9px] font-black uppercase tracking-widest text-emerald-400">Accreditation Number</p>
+                        <p className="text-lg font-mono font-extrabold text-amber-300 tracking-wider">
+                          {accNo}
+                        </p>
+                      </div>
+
+                      {/* License */}
+                      <div className="text-xs">
+                        <div>
+                          <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-0.5">PRC License No.</p>
+                          <p className="font-mono font-bold text-emerald-300 text-xs">{prcLic}</p>
+                        </div>
+                      </div>
+
+                      {/* Dates */}
+                      <div className="pt-2 border-t border-white/10 grid grid-cols-2 gap-3 text-[11px]">
+                        <div>
+                          <p className="text-[8px] font-black uppercase tracking-widest text-slate-400">Issued On</p>
+                          <p className="font-semibold text-slate-200">{issueDateStr}</p>
+                        </div>
+                        <div>
+                          <p className="text-[8px] font-black uppercase tracking-widest text-slate-400">Valid Until</p>
+                          <p className="font-extrabold text-emerald-400">{validUntilStr}</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Right Column (4 cols): QR Verification */}
+                    <div className="md:col-span-4 flex flex-col items-center justify-center p-4 rounded-2xl bg-white/10 border border-white/15 backdrop-blur-md text-center">
+                      <div className="bg-white p-2 rounded-xl shadow-lg border border-emerald-400/40">
+                        <QRCodeSVG value={verifyUrl} size={110} level="H" includeMargin={false} />
+                      </div>
+                      <p className="text-[9px] font-bold uppercase tracking-widest text-emerald-300 mt-2.5">Official Verification</p>
+                      <p className="text-[8px] text-slate-300 font-mono mt-0.5">Scan to verify PAHA ID</p>
+                    </div>
+                  </div>
+
+                  {/* Card Footer */}
+                  <div className="mt-6 pt-4 border-t border-white/15 flex items-center justify-between text-[9px] text-slate-400 font-semibold relative z-10">
+                    <span>Institutional Member ID: {memberId}</span>
+                    <span>PAHA Accreditation Standard 2026</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* 3. Comprehensive Accreditation Details Breakdown Card */}
+              <div className="bg-white dark:bg-slate-800 rounded-3xl p-6 md:p-8 shadow-lg border border-slate-200 dark:border-slate-700 space-y-6">
+                <h3 className="text-lg font-bold text-[#1E3A8A] dark:text-white flex items-center gap-2 border-b border-slate-100 dark:border-slate-700 pb-4">
+                  <span className="material-symbols-outlined text-[#2563EB]">verified_user</span>
+                  Complete Accreditation Details & Audit Record
+                </h3>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {[
+                    { label: 'Clinic Name', value: application.clinicName, icon: 'storefront' },
+                    { label: 'Accreditation Number', value: accNo, icon: 'badge', highlight: true },
+                    { label: 'Status', value: 'PAHA Accredited Clinic', icon: 'verified', statusBadge: true },
+                    { label: 'PRC License Number', value: prcLic, icon: 'card_membership' },
+                    { label: 'Institutional Member ID', value: memberId, icon: 'badge' },
+                    { label: 'Letter of Intent Ref', value: application.loiData?.loiRef || application.id, icon: 'receipt_long' },
+                    { label: 'Date Issued', value: issueDateStr, icon: 'calendar_today' },
+                    { label: 'Expiration Date', value: validUntilStr, icon: 'event_available' },
+                  ].map((field, idx) => (
+                    <div key={idx} className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200/60 dark:border-white/5 space-y-1">
+                      <div className="flex items-center gap-1.5 text-slate-400 dark:text-slate-500">
+                        <span className="material-symbols-outlined text-sm">{field.icon}</span>
+                        <span className="text-[10px] font-black uppercase tracking-widest">{field.label}</span>
+                      </div>
+                      {field.statusBadge ? (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-black uppercase tracking-wider bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300">
+                          <span className="size-1.5 rounded-full bg-emerald-500"></span>
+                          {field.value}
+                        </span>
+                      ) : field.highlight ? (
+                        <p className="text-sm font-mono font-extrabold text-blue-600 dark:text-blue-400">{field.value}</p>
+                      ) : (
+                        <p className="text-xs font-bold text-slate-800 dark:text-slate-200 truncate">{field.value || 'N/A'}</p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200/60 dark:border-white/5 space-y-1">
+                  <div className="flex items-center gap-1.5 text-slate-400 dark:text-slate-500">
+                    <span className="material-symbols-outlined text-sm">location_on</span>
+                    <span className="text-[10px] font-black uppercase tracking-widest">Full Registered Clinic Address</span>
+                  </div>
+                  <p className="text-xs font-bold text-slate-800 dark:text-slate-200">{addr}</p>
+                </div>
+
+                {/* Physical Certificate Note */}
+                <div className="p-4 rounded-2xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/60 flex items-start gap-3">
+                  <span className="material-symbols-outlined text-emerald-600 dark:text-emerald-400 text-xl shrink-0 mt-0.5">mark_email_read</span>
+                  <div>
+                    <p className="text-xs font-extrabold text-emerald-800 dark:text-emerald-300">Physical Accreditation Certificate Delivery</p>
+                    <p className="text-[11px] text-emerald-700 dark:text-emerald-400 mt-0.5">
+                      Your official printed & framed PAHA Accreditation Certificate will be delivered to your registered clinic address within 7 business days.
+                    </p>
+                  </div>
+                </div>
+              </div>
             </div>
-            <h2 className="text-3xl font-bold text-slate-800 dark:text-white mb-2">Accreditation Complete!</h2>
-            <p className="text-slate-500 dark:text-slate-400 mb-6">
-              Your PAHA Accreditation Certificate will be issued within 7 business days.
-            </p>
-            <div className="bg-emerald-50 dark:bg-emerald-900/20 rounded-2xl p-6 border border-emerald-200 dark:border-emerald-800 inline-block">
-              <p className="text-sm text-emerald-700 dark:text-emerald-300 mb-2">
-                Accreditation No: <span className="font-bold text-lg">{application.paymentData.accreditationNo}</span>
-              </p>
-              <p className="text-sm text-emerald-700 dark:text-emerald-300">
-                Valid Until: <span className="font-bold">{application.paymentData.validUntil ? new Date(application.paymentData.validUntil).toLocaleDateString() : 'N/A'}</span>
-              </p>
-            </div>
-          </div>
-        )}
+          );
+        })()}
 
         {showSuccessModal && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">

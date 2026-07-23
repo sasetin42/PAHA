@@ -209,6 +209,49 @@ const MembersManager: React.FC<MembersManagerProps> = ({ filter = 'all', canEdit
         setCurrentPage(1);
     }, [searchQuery, typeFilter, accreditationFilter]);
 
+    const getInitials = (name: string) => {
+        if (!name) return 'PA';
+        const parts = name.trim().split(/\s+/);
+        if (parts.length >= 2) {
+            return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+        }
+        return name.slice(0, 2).toUpperCase();
+    };
+
+    const resolveMemberAvatar = (member: MemberProfile) => {
+        if (!member) return null;
+        
+        // 1. Check linked user in usersMap
+        const emailKey = (member.email || '').toLowerCase().trim();
+        const linkedApp = membershipApps.find(app => (app.email || '').toLowerCase().trim() === emailKey);
+        const uid = linkedApp?.uid || (member as any).uid || (member as any).userId;
+        if (uid && usersMap[uid]) {
+            const u = usersMap[uid];
+            const userImg = u.photoUrl || u.clinicImageUrl || u.clinicLogo || u.avatarUrl || u.imageUrl;
+            if (userImg && typeof userImg === 'string' && userImg.trim() !== '') return userImg;
+        }
+
+        // 2. Check linked application in membershipApps
+        if (linkedApp) {
+            const appImg = linkedApp.photoUrl || linkedApp.clinicImageUrl || linkedApp.clinicLogo || linkedApp.imageUrl;
+            if (appImg && typeof appImg === 'string' && appImg.trim() !== '') return appImg;
+        }
+
+        // 3. Direct properties on member object
+        const m = member as any;
+        const directImg = m.photoUrl || m.clinicImageUrl || m.clinicLogo || m.imageUrl || m.avatarUrl || m.photo || m.headVetPhotoUrl;
+        if (directImg && typeof directImg === 'string' && directImg.trim() !== '' && !directImg.includes('unsplash.com/photo-1584132967334')) {
+            return directImg;
+        }
+
+        // 4. member.image fallback
+        if (member.image && typeof member.image === 'string' && member.image.trim() !== '' && !member.image.includes('unsplash.com/photo-1584132967334')) {
+            return member.image;
+        }
+
+        return member.image || null;
+    };
+
 
     // Form State (shared for add/edit)
     const [formData, setFormData] = useState<Partial<MemberProfile>>({
@@ -465,71 +508,70 @@ return (
                     </div>
                 )}
             </div>
-
             {/* KPI Section */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                <div className="bg-white dark:bg-slate-800 p-5 rounded-[12px] shadow-sm border border-slate-200 dark:border-white/5 flex items-center justify-between">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+                <div className="bg-white dark:bg-slate-800 p-5 lg:p-6 rounded-[16px] shadow-sm border border-slate-200 dark:border-white/5 flex items-center justify-between transition-all hover:shadow-md">
                     <div>
-                        <p className="text-xs font-bold text-slate-400 dark:text-slate-550 uppercase tracking-wider">Total Members</p>
-                        <h3 className="text-2xl font-bold text-slate-800 dark:text-white mt-1">{totalCount}</h3>
+                        <p className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Total Members</p>
+                        <h3 className="text-2xl font-black text-slate-800 dark:text-white mt-1">{totalCount}</h3>
                     </div>
-                    <div className="size-12 rounded-xl bg-blue-500/10 flex items-center justify-center text-blue-500">
+                    <div className="size-12 rounded-xl bg-blue-500/10 flex items-center justify-center text-blue-500 shrink-0">
                         <span className="material-symbols-outlined text-2xl">group</span>
                     </div>
                 </div>
-                <div className="bg-white dark:bg-slate-800 p-5 rounded-[12px] shadow-sm border border-slate-200 dark:border-white/5 flex items-center justify-between">
+                <div className="bg-white dark:bg-slate-800 p-5 lg:p-6 rounded-[16px] shadow-sm border border-slate-200 dark:border-white/5 flex items-center justify-between transition-all hover:shadow-md">
                     <div>
-                        <p className="text-xs font-bold text-slate-400 dark:text-slate-555 uppercase tracking-wider">Accredited Vets</p>
-                        <h3 className="text-2xl font-bold text-emerald-500 mt-1">{accreditedCount}</h3>
+                        <p className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Accredited Vets</p>
+                        <h3 className="text-2xl font-black text-emerald-500 mt-1">{accreditedCount}</h3>
                     </div>
-                    <div className="size-12 rounded-xl bg-emerald-500/10 flex items-center justify-center text-emerald-500">
+                    <div className="size-12 rounded-xl bg-emerald-500/10 flex items-center justify-center text-emerald-500 shrink-0">
                         <span className="material-symbols-outlined text-2xl">verified</span>
                     </div>
                 </div>
-                <div className="bg-white dark:bg-slate-800 p-5 rounded-[12px] shadow-sm border border-slate-200 dark:border-white/5 flex items-center justify-between">
+                <div className="bg-white dark:bg-slate-800 p-5 lg:p-6 rounded-[16px] shadow-sm border border-slate-200 dark:border-white/5 flex items-center justify-between transition-all hover:shadow-md">
                     <div>
-                        <p className="text-xs font-bold text-slate-400 dark:text-slate-555 uppercase tracking-wider">Clinics & Hospitals</p>
-                        <h3 className="text-2xl font-bold text-purple-500 mt-1">{clinicCount}</h3>
+                        <p className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Clinics & Hospitals</p>
+                        <h3 className="text-2xl font-black text-purple-500 mt-1">{clinicCount}</h3>
                     </div>
-                    <div className="size-12 rounded-xl bg-purple-500/10 flex items-center justify-center text-purple-500">
+                    <div className="size-12 rounded-xl bg-purple-500/10 flex items-center justify-center text-purple-500 shrink-0">
                         <span className="material-symbols-outlined text-2xl">medical_services</span>
                     </div>
                 </div>
-                <div className="bg-white dark:bg-slate-800 p-5 rounded-[12px] shadow-sm border border-slate-200 dark:border-white/5 flex items-center justify-between">
+                <div className="bg-white dark:bg-slate-800 p-5 lg:p-6 rounded-[16px] shadow-sm border border-slate-200 dark:border-white/5 flex items-center justify-between transition-all hover:shadow-md">
                     <div>
-                        <p className="text-xs font-bold text-slate-400 dark:text-slate-555 uppercase tracking-wider">Professional Vets</p>
-                        <h3 className="text-2xl font-bold text-amber-500 mt-1">{professionalCount}</h3>
+                        <p className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Professional Vets</p>
+                        <h3 className="text-2xl font-black text-amber-500 mt-1">{professionalCount}</h3>
                     </div>
-                    <div className="size-12 rounded-xl bg-amber-500/10 flex items-center justify-center text-amber-500">
+                    <div className="size-12 rounded-xl bg-amber-500/10 flex items-center justify-center text-amber-500 shrink-0">
                         <span className="material-symbols-outlined text-2xl">school</span>
                     </div>
                 </div>
             </div>
 
             {/* Advanced Filter Widget */}
-            <div className="bg-white dark:bg-slate-800 p-4 rounded-[12px] shadow-sm border border-slate-200 dark:border-white/5">
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 items-end">
-                    <div className="lg:col-span-2">
-                        <label htmlFor="mm-search" className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block mb-1">Search Members</label>
+            <div className="bg-white dark:bg-slate-800 p-5 lg:p-6 rounded-[16px] shadow-sm border border-slate-200 dark:border-white/5 space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-12 gap-4 md:gap-5 items-end">
+                    <div className="md:col-span-5">
+                        <label htmlFor="mm-search" className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest block mb-1.5">Search Members</label>
                         <div className="relative">
-                            <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">search</span>
+                            <span className="material-symbols-outlined absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-sm">search</span>
                             <input
                                 id="mm-search"
                                 type="text"
                                 placeholder="Search by name, vet, email, or address..."
                                 value={searchQuery}
                                 onChange={(e) => setSearchQuery(e.target.value)}
-                                className="w-full text-xs font-semibold pl-9 pr-3 py-2 rounded-[8px] bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-white/5 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-primary/20"
+                                className="w-full text-xs font-semibold pl-10 pr-4 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-white/10 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-primary/20 transition-all placeholder:text-slate-400"
                             />
                         </div>
                     </div>
-                    <div>
-                        <label htmlFor="mm-type-filter" className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block mb-1">Facility Type</label>
+                    <div className="md:col-span-2">
+                        <label htmlFor="mm-type-filter" className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest block mb-1.5">Facility Type</label>
                         <select
                             id="mm-type-filter"
                             value={typeFilter}
                             onChange={(e) => setTypeFilter(e.target.value)}
-                            className="w-full text-xs font-semibold px-3 py-2 rounded-[8px] bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-white/5 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-primary/20"
+                            className="w-full text-xs font-semibold px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-white/10 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-primary/20 transition-all"
                         >
                             <option value="all">All Types</option>
                             <option value="Clinic">Clinic</option>
@@ -539,13 +581,13 @@ return (
                             <option value="Professional Member">Professional Member</option>
                         </select>
                     </div>
-                    <div>
-                        <label htmlFor="mm-status-filter" className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block mb-1">Accreditation</label>
+                    <div className="md:col-span-2">
+                        <label htmlFor="mm-status-filter" className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest block mb-1.5">Accreditation</label>
                         <select
                             id="mm-status-filter"
                             value={accreditationFilter}
                             onChange={(e: any) => setAccreditationFilter(e.target.value)}
-                            className="w-full text-xs font-semibold px-3 py-2 rounded-[8px] bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-white/5 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-primary/20"
+                            className="w-full text-xs font-semibold px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-white/10 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-primary/20 transition-all"
                             disabled={filter === 'accredited'}
                         >
                             <option value="all">All Members</option>
@@ -553,8 +595,8 @@ return (
                             <option value="standard">Standard Only</option>
                         </select>
                     </div>
-                    <div>
-                        <label htmlFor="mm-sort-by" className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block mb-1">Sort Members</label>
+                    <div className="md:col-span-3">
+                        <label htmlFor="mm-sort-by" className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest block mb-1.5">Sort Members</label>
                         <select
                             id="mm-sort-by"
                             value={`${sortBy}-${sortOrder}`}
@@ -563,7 +605,7 @@ return (
                                 setSortBy(key);
                                 setSortOrder(order);
                             }}
-                            className="w-full text-xs font-semibold px-3 py-2 rounded-[8px] bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-white/5 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-primary/20"
+                            className="w-full text-xs font-semibold px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-white/10 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-primary/20 transition-all"
                         >
                             <option value="joinedAt-desc">Newest First</option>
                             <option value="joinedAt-asc">Oldest First</option>
@@ -577,7 +619,7 @@ return (
                     </div>
                 </div>
                 {(searchQuery || typeFilter !== 'all' || (filter !== 'accredited' && accreditationFilter !== 'all')) && (
-                    <div className="flex justify-end mt-3">
+                    <div className="flex justify-end pt-1">
                         <button
                             onClick={() => {
                                 setSearchQuery('');
@@ -594,17 +636,17 @@ return (
             </div>
 
             {/* Enhanced Table Card */}
-            <div className="bg-white dark:bg-slate-800 rounded-[12px] shadow-sm border border-slate-200 dark:border-white/5 overflow-hidden">
-                <div className="overflow-x-auto custom-scrollbar">
-                    <table className="w-full text-left border-collapse">
-                        <thead className="bg-slate-50/70 dark:bg-slate-900/50 text-slate-400 dark:text-slate-500 text-[10px] font-bold uppercase tracking-wider border-b border-slate-200 dark:border-white/5">
+            <div className="bg-white dark:bg-slate-800 rounded-[16px] shadow-sm border border-slate-200 dark:border-white/5 overflow-hidden">
+                <div className="overflow-x-auto custom-scrollbar min-w-full">
+                    <table className="w-full text-left border-collapse min-w-[1050px]">
+                        <thead className="bg-slate-50/80 dark:bg-slate-900/60 text-slate-400 dark:text-slate-500 text-[10px] font-black uppercase tracking-widest border-b border-slate-200 dark:border-white/5">
                             <tr>
-                                <th className="p-4">Member Info</th>
-                                <th className="p-4">Contact Info</th>
-                                <th className="p-4">Location</th>
-                                <th className="p-4">Clinic Type</th>
-                                <th className="p-4">Payment Details</th>
-                                <th className="p-4 text-right">Actions</th>
+                                <th className="px-6 py-5 min-w-[260px]">Member Info</th>
+                                <th className="px-6 py-5 min-w-[220px]">Contact Info</th>
+                                <th className="px-6 py-5 min-w-[240px]">Location</th>
+                                <th className="px-6 py-5 min-w-[170px]">Clinic Type</th>
+                                <th className="px-6 py-5 min-w-[160px]">Payment Details</th>
+                                <th className="px-6 py-5 min-w-[100px] text-right">Actions</th>
                             </tr>
                         </thead>
                         <tbody className="text-xs divide-y divide-slate-100 dark:divide-white/5">
@@ -619,54 +661,74 @@ return (
                                 paginatedMembers.map(member => (
                                     <tr 
                                         key={member.id} 
-                                        className="hover:bg-slate-50/50 dark:hover:bg-slate-900/30 transition-colors cursor-pointer text-slate-900 dark:text-white"
+                                        className="hover:bg-slate-50/70 dark:hover:bg-slate-900/40 transition-colors cursor-pointer text-slate-900 dark:text-white"
                                         onClick={() => setSelectedProfile(member)}
                                     >
-                                        <td className="p-4">
-                                            <div className="flex items-center gap-3">
-                                                <div className="relative shrink-0">
-                                                    <div className="w-10 h-10 rounded-[8px] bg-slate-100 dark:bg-slate-900 overflow-hidden border border-slate-200 dark:border-white/10 shadow-sm flex items-center justify-center">
-                                                        {member.image ? (
-                                                            <img src={member.image} alt="" className="w-full h-full object-cover" />
-                                                        ) : (
-                                                            <span className="material-symbols-outlined text-slate-400 text-lg">person</span>
-                                                        )}
-                                                    </div>
-                                                    {member.isAccredited && (
-                                                        <div className="absolute -top-1 -right-1 w-4 h-4 bg-primary rounded-full flex items-center justify-center border border-white dark:border-slate-800 shadow-sm">
-                                                            <span className="material-symbols-outlined text-[10px] text-white font-bold">verified</span>
+                                        <td className="px-6 py-6">
+                                            <div className="flex items-center gap-4">
+                                                {(() => {
+                                                    const avatarUrl = resolveMemberAvatar(member);
+                                                    const initials = getInitials(member.name);
+                                                    return (
+                                                        <div className="relative shrink-0 group">
+                                                            <div 
+                                                                className="w-12 h-12 rounded-xl bg-gradient-to-br from-slate-100 to-slate-200 dark:from-slate-800 dark:to-slate-900 border border-slate-200 dark:border-white/10 shadow-sm flex items-center justify-center transition-all overflow-hidden group-hover:ring-2 group-hover:ring-primary/40"
+                                                                title={avatarUrl ? "Click to view full profile image" : member.name}
+                                                                onClick={(e) => {
+                                                                    if (avatarUrl) {
+                                                                        e.stopPropagation();
+                                                                        setViewerFile({
+                                                                            url: avatarUrl,
+                                                                            name: `${member.name} - Profile Image`
+                                                                        });
+                                                                    }
+                                                                }}
+                                                            >
+                                                                {avatarUrl ? (
+                                                                    <img src={avatarUrl} alt={member.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                                                                ) : (
+                                                                    <div className="flex flex-col items-center justify-center font-black text-slate-500 dark:text-slate-400 text-xs">
+                                                                        {initials}
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                            {member.isAccredited && (
+                                                                <div className="absolute -top-1 -right-1 size-4 bg-emerald-500 rounded-full flex items-center justify-center border-2 border-white dark:border-slate-800 shadow-sm">
+                                                                    <span className="material-symbols-outlined text-[9px] text-white font-black" style={{ fontVariationSettings: "'FILL' 1" }}>verified</span>
+                                                                </div>
+                                                            )}
                                                         </div>
-                                                    )}
-                                                </div>
-                                                <div>
-                                                    <h4 className="font-bold text-slate-900 dark:text-white text-sm leading-tight" title={member.name}>
-                                                        {member.name.length > 20 ? `${member.name.substring(0, 20)}...` : member.name}
+                                                    );
+                                                })()}
+                                                <div className="min-w-0">
+                                                    <h4 className="font-bold text-slate-900 dark:text-white text-sm leading-tight truncate max-w-[200px]" title={member.name}>
+                                                        {member.name}
                                                     </h4>
-                                                    <p className="text-[10px] text-slate-400 dark:text-slate-500 font-semibold mt-0.5 uppercase tracking-wide flex items-center gap-1" title={member.headVeterinarian || 'No Head Vet Specified'}>
-                                                        <span className="material-symbols-outlined text-[12px]">medical_services</span>
-                                                        {member.headVeterinarian ? (member.headVeterinarian.length > 20 ? `${member.headVeterinarian.substring(0, 20)}...` : member.headVeterinarian) : 'No Head Vet Specified'}
+                                                    <p className="text-[10px] text-slate-400 dark:text-slate-500 font-semibold mt-1 uppercase tracking-wide flex items-center gap-1 truncate max-w-[200px]" title={member.headVeterinarian || 'No Head Vet Specified'}>
+                                                        <span className="material-symbols-outlined text-[12px] shrink-0">medical_services</span>
+                                                        <span className="truncate">{member.headVeterinarian || 'No Head Vet Specified'}</span>
                                                     </p>
                                                 </div>
                                             </div>
                                         </td>
-                                        <td className="p-4">
-                                            <div className="space-y-1">
+                                        <td className="px-6 py-6">
+                                            <div className="space-y-2">
                                                 <a 
                                                     href={`mailto:${member.email}`} 
-                                                    className="text-xs font-semibold text-primary hover:text-primary/80 flex items-center gap-1.5 transition-colors"
+                                                    className="text-xs font-semibold text-primary hover:text-primary/80 flex items-center gap-1.5 transition-colors truncate max-w-[200px]"
                                                     onClick={e => e.stopPropagation()}
                                                 >
-                                                    <span className="material-symbols-outlined text-sm">mail</span>
-                                                    {member.email}
+                                                    <span className="material-symbols-outlined text-sm shrink-0">mail</span>
+                                                    <span className="truncate">{member.email}</span>
                                                 </a>
                                                 <div className="text-[10px] font-bold text-slate-400 dark:text-slate-500 flex items-center gap-1.5">
-                                                    <span className="material-symbols-outlined text-sm">call</span>
+                                                    <span className="material-symbols-outlined text-sm shrink-0">call</span>
                                                     {member.phone || 'N/A'}
                                                 </div>
                                             </div>
                                         </td>
-                                        <td className="p-4">
-                                            <div className="flex flex-col gap-1 max-w-[200px]">
+                                        <td className="px-6 py-6">
+                                            <div className="flex flex-col gap-1.5 max-w-[220px]">
                                                 <p className="text-xs text-slate-600 dark:text-slate-400 font-medium line-clamp-1 italic leading-relaxed">{member.address}</p>
                                                 <a 
                                                     href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(member.address)}${member.lat ? `&center=${member.lat},${member.lng}` : ''}`}
@@ -680,8 +742,8 @@ return (
                                                 </a>
                                             </div>
                                         </td>
-                                        <td className="p-4 whitespace-nowrap">
-                                            <div className="flex flex-col items-start gap-1.5">
+                                        <td className="px-6 py-6 whitespace-nowrap">
+                                            <div className="flex flex-col items-start gap-2">
                                                 <span className={`px-2.5 py-0.5 rounded-[100px] text-[8px] font-extrabold uppercase tracking-wider text-white shadow-sm flex items-center gap-1
                                                     ${member.type === 'Hospital' ? 'bg-rose-600' : 
                                                       member.type === 'Center' ? 'bg-sky-600' : 
@@ -708,7 +770,7 @@ return (
                                                 )}
                                             </div>
                                         </td>
-                                        <td className="p-4 whitespace-nowrap">
+                                        <td className="px-6 py-6 whitespace-nowrap">
                                             {(() => {
                                                 const app = acApplications.find(a => a.email === member.email || a.clinicName === member.name);
                                                 const tx = allTransactions.find(t => t.customerEmail === member.email || t.customerName === member.name);
@@ -755,7 +817,7 @@ return (
                                                 }
 
                                                 return (
-                                                    <div className="flex flex-col gap-1 text-[8px] font-extrabold uppercase tracking-wider">
+                                                    <div className="flex flex-col gap-1.5 text-[8px] font-extrabold uppercase tracking-wider">
                                                         <div className="flex items-center gap-1">
                                                             <span className="text-slate-450 font-semibold lowercase">accred:</span>
                                                             <span className={`px-2 py-0.5 rounded-[100px] border ${accStyle}`}>{accText}</span>
@@ -768,7 +830,7 @@ return (
                                                 );
                                             })()}
                                         </td>
-                                        <td className="p-4 text-right whitespace-nowrap" onClick={e => e.stopPropagation()}>
+                                        <td className="px-6 py-6 text-right whitespace-nowrap" onClick={e => e.stopPropagation()}>
                                             <div className="relative inline-block text-left">
                                                 <button
                                                     onClick={(e) => {

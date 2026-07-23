@@ -85,6 +85,11 @@ const PaymentPage: React.FC = () => {
     const [photoPreview, setPhotoPreview] = useState('');
     const photoRef = useRef<HTMLInputElement>(null);
 
+    const [clinicImage, setClinicImage] = useState<File | null>(null);
+    const [clinicImagePreview, setClinicImagePreview] = useState('');
+    const [uploadedClinicImageUrl, setUploadedClinicImageUrl] = useState('');
+    const clinicImageRef = useRef<HTMLInputElement>(null);
+
     // Step 2 — Payment
     const [payOption, setPayOption] = useState<PayOption>('Pay Now');
     const [agreed, setAgreed] = useState(false);
@@ -246,7 +251,25 @@ const PaymentPage: React.FC = () => {
             setPhotoPreview(profile.photoUrl);
             setUploadedPhotoUrl(profile.photoUrl);
         }
+        const existingClinicImage = (profile as any).clinicImageUrl || (profile as any).clinicLogo || (profile as any).facilityLogo || '';
+        if (existingClinicImage) {
+            setClinicImagePreview(existingClinicImage);
+            setUploadedClinicImageUrl(existingClinicImage);
+        }
     }, [profile]);
+
+    const handleClinicImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        if (file.size > 5 * 1024 * 1024) {
+            alert('Clinic profile image must be under 5 MB.');
+            return;
+        }
+        setClinicImage(file);
+        const reader = new FileReader();
+        reader.onload = (ev) => setClinicImagePreview(ev.target?.result as string);
+        reader.readAsDataURL(file);
+    };
 
     // Fetch accreditation application when tab is accreditation
     useEffect(() => {
@@ -358,7 +381,7 @@ const PaymentPage: React.FC = () => {
 
     const validateStep1 = () => {
         const effectivePrc = prcLicense || profile?.prcLicense || profile?.prcLicenseNo || '';
-        const effectiveName = (fullName || profile?.ownerName || profile?.fullName || profile?.displayName || '').trim();
+        const effectiveName = (fullName || profile?.ownerName || profile?.fullName || profile?.displayName || user?.displayName || user?.email?.split('@')[0] || 'Member').trim();
         if (!effectivePrc) { setError('PRC License number is required.'); return false; }
         if (!effectiveName) { setError('Representative name is required.'); return false; }
         if (!birthdate) { setError('Birthdate is required.'); return false; }
@@ -369,6 +392,7 @@ const PaymentPage: React.FC = () => {
         if (!photo && !photoPreview) { setError('Profile photo is required.'); return false; }
         if (!emailConfirm) { setError('Confirm email address is required.'); return false; }
         if (emailConfirm.trim().toLowerCase() !== (user?.email || '').trim().toLowerCase()) { setError('Email addresses do not match.'); return false; }
+        if (!clinicImage && !clinicImagePreview && !uploadedClinicImageUrl) { setError('Clinic profile image / logo is required.'); return false; }
         return true;
     };
 
@@ -387,6 +411,14 @@ const PaymentPage: React.FC = () => {
                     setUploadedPhotoUrl(photoUrl);
                 }
 
+                let clinicImageUrl = uploadedClinicImageUrl || (profile as any)?.clinicImageUrl || (profile as any)?.clinicLogo || '';
+                if (clinicImage) {
+                    const storageRef = ref(storage, `clinic-photos/${user?.uid}/${Date.now()}_${clinicImage.name}`);
+                    await uploadBytes(storageRef, clinicImage);
+                    clinicImageUrl = await getDownloadURL(storageRef);
+                    setUploadedClinicImageUrl(clinicImageUrl);
+                }
+
                 if (user) {
                     await setDoc(doc(db, 'users', user.uid), {
                         prcLicense,
@@ -395,6 +427,8 @@ const PaymentPage: React.FC = () => {
                         sex,
                         mobile: mobile ? `+63${mobile.replace(/^0/, '')}` : '',
                         photoUrl,
+                        clinicImageUrl,
+                        clinicLogo: clinicImageUrl,
                         displayName: fullName,
                         updatedAt: serverTimestamp()
                     }, { merge: true });
@@ -1279,22 +1313,56 @@ const PaymentPage: React.FC = () => {
                                                 </div>
                                             </div>
                                         </div>
-                                    </div>
-                                </div>
 
-                                {/* Representative Name */}
-                                <div className="bg-white dark:bg-[#0F172A] rounded-2xl border border-slate-200 dark:border-white/5 p-5 shadow-sm">
-                                    <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400 dark:text-white/30 mb-4">Representative Name</p>
-                                    <div>
-                                        <label htmlFor="fullName" className={labelCls}>Representative Name <span className="text-red-500">*</span></label>
-                                        <div className="relative">
-                                            <div className="absolute left-2.5 top-1/2 -translate-y-1/2 flex items-center justify-center size-7 rounded-lg bg-rose-50 dark:bg-rose-500/10 border border-rose-200/50 dark:border-rose-500/20 text-rose-500 pointer-events-none shadow-sm">
-                                                <span className="material-symbols-outlined text-base font-medium">person</span>
+                                        {/* Clinic Profile Image / Logo Upload */}
+                                        <div className="pt-1 border-t border-slate-100 dark:border-white/5">
+                                            <label htmlFor="payment-clinicImage" className={labelCls}>
+                                                Clinic Profile Image / Logo <span className="text-red-500">*</span>
+                                            </label>
+                                            <div
+                                                className="border-2 border-dashed border-slate-200 dark:border-white/10 rounded-2xl p-4 text-center cursor-pointer hover:border-teal-500 hover:bg-teal-500/[0.03] transition-all flex flex-col sm:flex-row items-center justify-between gap-4 bg-slate-50/50 dark:bg-white/[0.02]"
+                                                onClick={() => clinicImageRef.current?.click()}
+                                            >
+                                                <div className="flex items-center gap-3.5 text-left min-w-0">
+                                                    <div className="size-14 rounded-2xl bg-teal-50 dark:bg-teal-500/10 border border-teal-200/50 dark:border-teal-500/20 flex items-center justify-center shrink-0 shadow-sm overflow-hidden">
+                                                        {clinicImagePreview ? (
+                                                            <img src={clinicImagePreview} alt="Clinic Logo" className="size-full object-cover" />
+                                                        ) : (
+                                                            <span className="material-symbols-outlined text-2xl text-teal-600 dark:text-teal-400">storefront</span>
+                                                        )}
+                                                    </div>
+                                                    <div className="min-w-0 flex-1">
+                                                        <p className="text-xs font-bold text-slate-800 dark:text-white truncate">
+                                                            {clinicImagePreview ? 'Clinic Profile Image Uploaded' : 'Upload Clinic Profile Image / Logo'}
+                                                        </p>
+                                                        <p className="text-[10px] text-slate-400 dark:text-white/40 mt-0.5 leading-snug">
+                                                            Front entrance or official clinic logo (JPG, PNG up to 5MB)
+                                                        </p>
+                                                    </div>
+                                                </div>
+
+                                                <button
+                                                    type="button"
+                                                    className="px-4 py-2 rounded-xl bg-teal-50 hover:bg-teal-100 dark:bg-teal-900/30 dark:hover:bg-teal-900/50 text-teal-700 dark:text-teal-300 font-bold text-xs transition-colors shrink-0 flex items-center gap-1.5 border border-teal-200/50 dark:border-teal-500/20"
+                                                >
+                                                    <span className="material-symbols-outlined text-sm">{clinicImagePreview ? 'edit' : 'cloud_upload'}</span>
+                                                    {clinicImagePreview ? 'Change Photo' : 'Upload Photo'}
+                                                </button>
                                             </div>
-                                            <input id="fullName" name="fullName" type="text" value={fullName} onChange={e => setFullName(e.target.value)} className={inputCls + ' pl-11'} placeholder="Enter full name" />
+                                            <input
+                                                ref={clinicImageRef}
+                                                id="payment-clinicImage"
+                                                name="paymentClinicImage"
+                                                type="file"
+                                                accept="image/jpeg,image/png"
+                                                className="hidden"
+                                                onChange={handleClinicImageChange}
+                                            />
                                         </div>
                                     </div>
                                 </div>
+
+
 
                                 <div className="flex justify-end pt-2">
                                     <button onClick={next}

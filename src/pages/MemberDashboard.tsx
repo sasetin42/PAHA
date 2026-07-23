@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useAdmin } from '../context/AdminContext';
 import AccreditationPipeline from './AccreditationPipeline';
-import { doc, updateDoc, collection, addDoc, onSnapshot, deleteDoc, serverTimestamp, query, orderBy, where, limit } from 'firebase/firestore';
+import { doc, updateDoc, collection, addDoc, onSnapshot, deleteDoc, serverTimestamp, query, orderBy, where, limit, getDocs } from 'firebase/firestore';
 import type { AccreditationApplication } from '../types/accreditation';
 import { WORKFLOW_STATUS_LABELS } from '../types/accreditation';
 import { db, storage } from '../config/firebase';
@@ -85,7 +85,128 @@ const MemberDashboard: React.FC = () => {
     const [notifTab, setNotifTab] = useState<'all' | 'unread'>('all');
     const [profileEditing, setProfileEditing] = useState(false);
     const [profileSaving, setProfileSaving] = useState(false);
+    const [uploadingPersonalImage, setUploadingPersonalImage] = useState(false);
+    const [uploadingClinicImage, setUploadingClinicImage] = useState(false);
     const [profileForm, setProfileForm] = useState({ displayName: '', clinicName: '', phone: '', clinicAddress: '', specialization: '', representativeName: '' });
+
+    // Upload Personal / Member Profile Photo
+    const handlePersonalImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file || !user) return;
+
+        if (file.size > 5 * 1024 * 1024) {
+            alert('Image file size must be less than 5MB.');
+            return;
+        }
+
+        setUploadingPersonalImage(true);
+        try {
+            const fileRef = ref(storage, `profile-photos/${user.uid}/member_${Date.now()}_${file.name}`);
+            await uploadBytes(fileRef, file);
+            const downloadUrl = await getDownloadURL(fileRef);
+
+            // 1. Update Firestore User Document
+            await updateDoc(doc(db, 'users', user.uid), {
+                photoUrl: downloadUrl,
+                avatarUrl: downloadUrl,
+                headVetPhotoUrl: downloadUrl,
+                updatedAt: new Date().toISOString()
+            });
+
+            // 2. Update Firestore Members Collection Document matching email
+            if (user.email) {
+                const membersRef = collection(db, 'members');
+                const qMembers = query(membersRef, where('email', '==', user.email));
+                const memberSnap = await getDocs(qMembers);
+                memberSnap.docs.forEach(async (d) => {
+                    await updateDoc(doc(db, 'members', d.id), {
+                        photoUrl: downloadUrl,
+                        avatarUrl: downloadUrl,
+                        headVetPhotoUrl: downloadUrl,
+                        updatedAt: new Date().toISOString()
+                    });
+                });
+            }
+
+            // 3. Notify Admin
+            notifyAdmin({
+                type: 'member_update',
+                title: 'Personal Profile Photo Updated',
+                body: `${profileForm.displayName || profile?.displayName || user.email} updated their personal profile image.`,
+                link: 'members',
+            });
+            
+            alert('✓ Personal profile photo updated successfully!');
+        } catch (err) {
+            console.error('Error uploading personal photo:', err);
+            alert('Failed to upload personal photo. Please try again.');
+        } finally {
+            setUploadingPersonalImage(false);
+        }
+    };
+
+    // Upload Clinic Facility Logo / Image
+    const handleClinicImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file || !user) return;
+
+        if (file.size > 5 * 1024 * 1024) {
+            alert('Image file size must be less than 5MB.');
+            return;
+        }
+
+        setUploadingClinicImage(true);
+        try {
+            const fileRef = ref(storage, `clinic-photos/${user.uid}/clinic_${Date.now()}_${file.name}`);
+            await uploadBytes(fileRef, file);
+            const downloadUrl = await getDownloadURL(fileRef);
+
+            // 1. Update Firestore User Document
+            await updateDoc(doc(db, 'users', user.uid), {
+                clinicImageUrl: downloadUrl,
+                clinicLogo: downloadUrl,
+                updatedAt: new Date().toISOString()
+            });
+
+            // 2. Update Firestore Members Collection Document matching email
+            if (user.email) {
+                const membersRef = collection(db, 'members');
+                const qMembers = query(membersRef, where('email', '==', user.email));
+                const memberSnap = await getDocs(qMembers);
+                memberSnap.docs.forEach(async (d) => {
+                    await updateDoc(doc(db, 'members', d.id), {
+                        clinicImageUrl: downloadUrl,
+                        clinicLogo: downloadUrl,
+                        updatedAt: new Date().toISOString()
+                    });
+                });
+            }
+
+            // 3. Update active membership applications if present
+            const pendingApp = myApplications.find(a => a.status === 'pending' || a.status === 'resend_requested' || a.status === 'pending_manual') || myApplications[0];
+            if (pendingApp) {
+                await updateDoc(doc(db, 'membership_applications', pendingApp.id), {
+                    clinicImageUrl: downloadUrl,
+                    clinicLogo: downloadUrl
+                });
+            }
+
+            // 4. Notify Admin
+            notifyAdmin({
+                type: 'member_update',
+                title: 'Clinic Facility Logo Updated',
+                body: `${profileForm.clinicName || profile?.clinicName || user.email} updated their clinic facility logo.`,
+                link: 'members',
+            });
+            
+            alert('✓ Clinic facility logo updated successfully!');
+        } catch (err) {
+            console.error('Error uploading clinic logo:', err);
+            alert('Failed to upload clinic logo. Please try again.');
+        } finally {
+            setUploadingClinicImage(false);
+        }
+    };
 
     // Clinic Representatives
     const [reps, setReps] = useState<ClinicRep[]>([]);
@@ -2198,36 +2319,124 @@ const formattedCardName = profile?.ownerName
                                     )}
                                 </div>
 
-                                {/* Avatar card */}
-                                <div className="bg-white dark:bg-[#0F172A] rounded-2xl border border-slate-200 dark:border-white/5 p-6 shadow-sm flex items-center gap-5">
-                                    {profile?.photoUrl ? (
-                                        <img 
-                                            src={profile.photoUrl} 
-                                            className="size-20 rounded-2xl object-cover shadow-xl shadow-primary/30 shrink-0 border border-slate-200 dark:border-white/10" 
-                                            alt={memberName} 
-                                        />
-                                    ) : (
-                                        <div className="size-20 rounded-2xl bg-primary flex items-center justify-center text-white font-black text-3xl shadow-xl shadow-primary/30 shrink-0">
-                                        {memberName.charAt(0).toUpperCase()}
-                                    </div>
-                                    )}
-                                    <div>
-                                        <div className="text-xl font-black text-slate-900 dark:text-white">{memberName}</div>
-                                        <div className="text-sm text-slate-500 dark:text-slate-400">{memberEmail}</div>
-                                        <div className="flex items-center gap-2.5 mt-2 flex-wrap">
-                                            <div className="flex items-center gap-1.5">
-                                                <span className="size-1.5 rounded-full bg-emerald-500"></span>
-                                                <span className="text-xs font-black text-emerald-600 dark:text-emerald-400 uppercase tracking-widest">Regular Member</span>
-                                            </div>
-                                            {profile?.isAccredited === true && (
-                                                <div className="flex items-center gap-1 bg-gradient-to-r from-amber-500/20 via-yellow-500/15 to-emerald-500/20 border border-amber-500/30 dark:border-amber-500/20 px-2.5 py-0.5 rounded-full shadow-sm">
-                                                    <span className="material-symbols-outlined text-[13px] text-amber-600 dark:text-amber-400 font-black" style={{ fontVariationSettings: "'FILL' 1" }}>workspace_premium</span>
-                                                    <span className="text-[9px] font-black uppercase tracking-widest text-amber-700 dark:text-amber-400">PAHA Accredited</span>
+                                {/* Avatar card with Dual Inline Uploads (Member Photo & Clinic Logo) */}
+                                {(() => {
+                                    const memberPhoto = profile?.photoUrl || profile?.avatarUrl || profile?.headVetPhotoUrl || user?.photoURL;
+                                    const clinicLogo = profile?.clinicImageUrl || profile?.clinicLogo || (accredApp as any)?.clinicImageUrl || (accredApp as any)?.clinicLogo;
+                                    return (
+                                        <div className="bg-white dark:bg-[#0F172A] rounded-2xl border border-slate-200 dark:border-white/5 p-6 shadow-sm space-y-5">
+                                            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-slate-100 dark:border-white/5 pb-5">
+                                                <div>
+                                                    <h2 className="text-xl font-black text-slate-900 dark:text-white leading-tight">{memberName}</h2>
+                                                    <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">{memberEmail}</p>
+                                                    <div className="flex items-center gap-2.5 mt-2 flex-wrap">
+                                                        <div className="flex items-center gap-1.5">
+                                                            <span className="size-1.5 rounded-full bg-emerald-500"></span>
+                                                            <span className="text-xs font-black text-emerald-600 dark:text-emerald-400 uppercase tracking-widest">Regular Member</span>
+                                                        </div>
+                                                        {profile?.isAccredited === true && (
+                                                            <div className="flex items-center gap-1 bg-gradient-to-r from-amber-500/20 via-yellow-500/15 to-emerald-500/20 border border-amber-500/30 dark:border-amber-500/20 px-2.5 py-0.5 rounded-full shadow-sm">
+                                                                <span className="material-symbols-outlined text-[13px] text-amber-600 dark:text-amber-400 font-black" style={{ fontVariationSettings: "'FILL' 1" }}>workspace_premium</span>
+                                                                <span className="text-[9px] font-black uppercase tracking-widest text-amber-700 dark:text-amber-400">PAHA Accredited</span>
+                                                            </div>
+                                                        )}
+                                                    </div>
                                                 </div>
-                                            )}
+                                            </div>
+
+                                            {/* Inline Dual Upload Avatars Grid */}
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                                {/* 1. Member Profile Photo Box */}
+                                                <div className="flex items-center gap-4 bg-slate-50/80 dark:bg-slate-800/40 p-4 rounded-2xl border border-slate-200/70 dark:border-white/5">
+                                                    <div className="relative group shrink-0">
+                                                        <div className="size-16 rounded-2xl bg-gradient-to-br from-primary to-blue-700 flex items-center justify-center text-white font-black text-2xl shadow-md overflow-hidden border-2 border-white dark:border-slate-800">
+                                                            {memberPhoto ? (
+                                                                <img src={memberPhoto} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" alt="Member Profile" />
+                                                            ) : (
+                                                                <span>{memberName.charAt(0).toUpperCase()}</span>
+                                                            )}
+                                                        </div>
+                                                        <label 
+                                                            htmlFor="m-personal-photo-upload" 
+                                                            className="absolute inset-0 bg-slate-900/60 backdrop-blur-[2px] rounded-2xl flex flex-col items-center justify-center text-white opacity-0 group-hover:opacity-100 transition-all cursor-pointer shadow-lg"
+                                                            title="Upload Member Photo"
+                                                        >
+                                                            {uploadingPersonalImage ? (
+                                                                <span className="material-symbols-outlined text-lg animate-spin">progress_activity</span>
+                                                            ) : (
+                                                                <span className="material-symbols-outlined text-lg">photo_camera</span>
+                                                            )}
+                                                        </label>
+                                                        <input
+                                                            id="m-personal-photo-upload"
+                                                            name="m-personal-photo-upload"
+                                                            type="file"
+                                                            accept="image/*"
+                                                            onChange={handlePersonalImageUpload}
+                                                            disabled={uploadingPersonalImage}
+                                                            className="hidden"
+                                                        />
+                                                    </div>
+                                                    <div className="min-w-0 flex-1">
+                                                        <span className="text-[9px] font-black uppercase tracking-widest text-slate-400 block">Member / Vet Photo</span>
+                                                        <p className="text-xs font-bold text-slate-800 dark:text-slate-200 truncate mt-0.5">{memberName}</p>
+                                                        <label 
+                                                            htmlFor="m-personal-photo-upload"
+                                                            className="mt-1.5 inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-wider text-primary hover:underline cursor-pointer"
+                                                        >
+                                                            <span className="material-symbols-outlined text-xs">upload</span>
+                                                            {uploadingPersonalImage ? 'Uploading...' : 'Change Photo'}
+                                                        </label>
+                                                    </div>
+                                                </div>
+
+                                                {/* 2. Clinic Facility Logo / Image Box */}
+                                                <div className="flex items-center gap-4 bg-slate-50/80 dark:bg-slate-800/40 p-4 rounded-2xl border border-slate-200/70 dark:border-white/5">
+                                                    <div className="relative group shrink-0">
+                                                        <div className="size-16 rounded-2xl bg-gradient-to-br from-emerald-600 to-teal-700 flex items-center justify-center text-white font-black text-2xl shadow-md overflow-hidden border-2 border-white dark:border-slate-800">
+                                                            {clinicLogo ? (
+                                                                <img src={clinicLogo} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" alt="Clinic Logo" />
+                                                            ) : (
+                                                                <span className="material-symbols-outlined text-2xl">local_hospital</span>
+                                                            )}
+                                                        </div>
+                                                        <label 
+                                                            htmlFor="m-clinic-logo-upload" 
+                                                            className="absolute inset-0 bg-slate-900/60 backdrop-blur-[2px] rounded-2xl flex flex-col items-center justify-center text-white opacity-0 group-hover:opacity-100 transition-all cursor-pointer shadow-lg"
+                                                            title="Upload Clinic Logo"
+                                                        >
+                                                            {uploadingClinicImage ? (
+                                                                <span className="material-symbols-outlined text-lg animate-spin">progress_activity</span>
+                                                            ) : (
+                                                                <span className="material-symbols-outlined text-lg">add_a_photo</span>
+                                                            )}
+                                                        </label>
+                                                        <input
+                                                            id="m-clinic-logo-upload"
+                                                            name="m-clinic-logo-upload"
+                                                            type="file"
+                                                            accept="image/*"
+                                                            onChange={handleClinicImageUpload}
+                                                            disabled={uploadingClinicImage}
+                                                            className="hidden"
+                                                        />
+                                                    </div>
+                                                    <div className="min-w-0 flex-1">
+                                                        <span className="text-[9px] font-black uppercase tracking-widest text-slate-400 block">Clinic Facility Logo</span>
+                                                        <p className="text-xs font-bold text-slate-800 dark:text-slate-200 truncate mt-0.5">{profile?.clinicName || 'Clinic Facility Logo'}</p>
+                                                        <label 
+                                                            htmlFor="m-clinic-logo-upload"
+                                                            className="mt-1.5 inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-wider text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer"
+                                                        >
+                                                            <span className="material-symbols-outlined text-xs">upload</span>
+                                                            {uploadingClinicImage ? 'Uploading...' : 'Change Logo'}
+                                                        </label>
+                                                    </div>
+                                                </div>
+                                            </div>
                                         </div>
-                                    </div>
-                                </div>
+                                    );
+                                })()}
 
                                 {/* Editable fields */}
                                 <div className="bg-white dark:bg-[#0F172A] rounded-2xl border border-slate-200 dark:border-white/5 shadow-sm overflow-hidden">
